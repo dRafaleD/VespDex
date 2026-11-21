@@ -18,6 +18,13 @@ The output adds `kind: "asphdex-behavior-report"`, `toolVersion` and `counts`. I
 
 ## Import an exported Windows Sysmon log
 
+Events can include a `processGuid`. A process creation event can also name a
+`parentProcessGuid`. The report groups event counts by process and records the
+image and parent when the capture contains the corresponding process creation.
+`unattributedEventCount` shows how many events arrived without a process GUID.
+These fields are additive. Older captures and existing v1 report readers
+remain compatible.
+
 Pass a saved Sysmon Operational EVTX and the `ProcessGuid` from the Event ID 1
 record for the process you want to inspect. The adapter uses the SHA-256
 recorded in that event, follows child process GUIDs and selects supported events

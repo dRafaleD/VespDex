@@ -78,11 +78,17 @@ $timeline = @(foreach ($event in $events) {
     if (!$detail -or [Text.Encoding]::UTF8.GetByteCount($detail) -gt 1024 -or $detail -match '\p{Cc}') {
         throw "Invalid or missing event detail for Sysmon event $($event.Id)."
     }
-    @{
+    $entry = @{
         timestamp = $event.Time.ToUniversalTime().ToString('o')
         kind = $kind
         detail = $detail
+        processGuid = $event.Guid
     }
+    $parent = [guid]::Empty
+    if ($event.Id -eq 1 -and [guid]::TryParse($fields['ParentProcessGuid'], [ref] $parent) -and $parent -ne [guid]::Empty) {
+        $entry.parentProcessGuid = $parent.ToString('D')
+    }
+    $entry
 })
 if ($timeline.Count -gt 2000) { throw 'The selected process tree has more than 2,000 events.' }
 
