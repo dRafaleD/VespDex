@@ -74,6 +74,14 @@ enum EventKind {
 }
 
 impl EventKind {
+    const ALL: [Self; 5] = [
+        Self::ProcessStart,
+        Self::FileWrite,
+        Self::RegistryWrite,
+        Self::NetworkConnection,
+        Self::DnsQuery,
+    ];
+
     fn key(self) -> &'static str {
         match self {
             Self::ProcessStart => "process-start",

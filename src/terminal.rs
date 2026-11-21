@@ -3,6 +3,7 @@ use std::{
     fs::{self, OpenOptions},
     io::{self, Write},
     path::PathBuf,
+    time::Instant,
 };
 
 use anyhow::{Context, Result, ensure};
@@ -18,7 +19,9 @@ use crossterm::{
 };
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use crate::{Report, analyze, encoded_report, read_capture};
+use crate::{EventKind, Report, analyze, encoded_report, normalize_guid, read_capture};
+
+mod boot;
 
 // AsphDex terminal portrait. See NOTICE for attribution and license.
 const EMBLEM: &[&str] = &[
@@ -65,6 +68,8 @@ struct Workspace {
     capture: Option<PathBuf>,
     report: Option<Report>,
     body: Option<Vec<String>>,
+    wrapped_body: Vec<String>,
+    wrap_width: usize,
     status: Option<String>,
     input: Vec<char>,
     cursor: usize,
@@ -92,6 +97,7 @@ impl Workspace {
         let raw: String = self.input.drain(..).collect();
         self.cursor = 0;
         self.scroll = 0;
+        self.wrap_width = 0;
         let line = raw.trim().trim_start_matches('/');
         let (command, arg) = line.split_once(char::is_whitespace).unwrap_or((line, ""));
         let arg = arg.trim();
@@ -119,6 +125,15 @@ impl Workspace {
                         self.text(
                             "    analyze          Olayları işle ve özeti göster",
                             "    analyze         Process events and show a summary",
+                        ),
+                        self.text(
+                            "    timeline [tür|all] [GUID]  Zaman çizelgesini göster",
+                            "    timeline [type|all] [GUID]  Show the event timeline",
+                        ),
+                        "      process-start · file-write · registry-write · network-connection · dns-query",
+                        self.text(
+                            "    processes        Süreçleri ve üst süreçlerini listele",
+                            "    processes        List processes and their parents",
                         ),
                         self.text(
                             "    export <dosya>   Raporu yeni bir JSON dosyasına yaz",
@@ -196,6 +211,11 @@ impl Workspace {
                 self.body = Some(lines);
                 self.report = Some(report);
             }
+            "timeline" => self.body = Some(self.timeline(arg)?),
+            "processes" => {
+                ensure!(arg.is_empty(), "processes");
+                self.body = Some(self.processes()?);
+            }
             "export" => {
                 let path = path_argument(arg)?;
                 let report = self.report.as_ref().context("open <file> → analyze")?;
@@ -213,6 +233,87 @@ impl Workspace {
             ),
         }
         Ok(true)
+    }
+
+    fn timeline(&self, filters: &str) -> Result<Vec<String>> {
+        let report = self.report.as_ref().context("open <file> → analyze")?;
+        let mut args = filters.split_whitespace();
+        let kind = args.next().filter(|value| *value != "all");
+        let guid = args.next().map(normalize_guid).transpose()?;
+        ensure!(args.next().is_none(), "timeline [type|all] [GUID]");
+        if let Some(kind) = kind {
+            ensure!(
+                EventKind::ALL.iter().any(|item| item.key() == kind),
+                "timeline [process-start|file-write|registry-write|network-connection|dns-query|all] [GUID]"
+            );
+        }
+        let mut lines = vec![
+            self.text("  ◆ Olay zaman çizelgesi", "  ◆ Event timeline")
+                .into(),
+            String::new(),
+        ];
+        let mut count = 0;
+        for event in &report.events {
+            if kind.is_some_and(|kind| event.kind.key() != kind)
+                || guid
+                    .as_ref()
+                    .is_some_and(|guid| event.process_guid.as_ref() != Some(guid))
+            {
+                continue;
+            }
+            count += 1;
+            lines.push(format!("    {}  {}", event.timestamp, event.kind.key()));
+            if let Some(guid) = &event.process_guid {
+                lines.push(format!("      GUID {guid}"));
+            }
+            lines.push(format!("      {}", event.detail));
+        }
+        lines[1] = format!(
+            "    {count} / {} {}",
+            report.events.len(),
+            self.text("olay", "events")
+        );
+        if count == 0 {
+            lines.push(
+                self.text("    Eşleşen olay yok.", "    No matching events.")
+                    .into(),
+            );
+        }
+        Ok(lines)
+    }
+
+    fn processes(&self) -> Result<Vec<String>> {
+        let report = self.report.as_ref().context("open <file> → analyze")?;
+        let mut lines = vec![
+            self.text("  ◆ Süreçler", "  ◆ Processes").into(),
+            String::new(),
+        ];
+        for (guid, process) in &report.processes {
+            let total: usize = process.counts.values().sum();
+            lines.push(format!(
+                "    {guid} · {total} {}",
+                self.text("olay", "events")
+            ));
+            if let Some(image) = &process.image {
+                lines.push(format!("      {image}"));
+            }
+            if let Some(parent) = &process.parent_process_guid {
+                lines.push(format!(
+                    "      {} {parent}",
+                    self.text("Üst süreç:", "Parent:")
+                ));
+            }
+        }
+        if report.processes.is_empty() {
+            lines.push(
+                self.text(
+                    "    İlişkilendirilen süreç yok.",
+                    "    No attributed processes.",
+                )
+                .into(),
+            );
+        }
+        Ok(lines)
     }
 }
 
@@ -244,21 +345,53 @@ fn centered(text: &str, width: usize) -> String {
     )
 }
 
-fn render(out: &mut impl Write, workspace: &mut Workspace) -> io::Result<()> {
+fn wrap(text: &str, width: usize, lines: &mut Vec<String>) {
+    let mut line = String::new();
+    let mut cells = 0;
+    for ch in text.chars() {
+        let size = ch.width().unwrap_or(0);
+        if cells + size > width {
+            lines.push(std::mem::take(&mut line));
+            cells = 0;
+        }
+        line.push(ch);
+        cells += size;
+    }
+    lines.push(line);
+}
+
+fn render(
+    out: &mut impl Write,
+    workspace: &mut Workspace,
+    progress: Option<f64>,
+) -> io::Result<()> {
     let (cols, rows) = terminal::size()?;
     let width = usize::from(cols.saturating_sub(1));
-    queue!(out, Hide, Clear(ClearType::All))?;
-    if cols < 12 || rows < 8 {
-        queue!(out, MoveTo(0, 0), Print(fit("VespDex", width)))?;
-        return out.flush();
-    }
-    let mut row = |y, color, text: &str| -> io::Result<()> {
+    queue!(out, Hide)?;
+    if cols < 12 || rows < 9 {
         queue!(
             out,
-            MoveTo(0, y),
-            SetForegroundColor(color),
-            Print(fit(text, width))
-        )
+            MoveTo(0, 0),
+            Clear(ClearType::All),
+            Print(fit("VespDex", width))
+        )?;
+        return out.flush();
+    }
+    let boot_frame = progress
+        .filter(|_| width >= 32 && rows >= 12)
+        .map(|progress| boot::Frame {
+            width,
+            height: usize::from(rows),
+            progress,
+            english: workspace.english,
+        });
+    let mut row = |y, color, text: &str| -> io::Result<()> {
+        queue!(out, MoveTo(0, y), Clear(ClearType::CurrentLine))?;
+        let (line, tone) = match boot_frame {
+            Some(frame) => frame.row(y, text, color),
+            None => (text.to_owned(), color),
+        };
+        queue!(out, SetForegroundColor(tone), Print(fit(&line, width)))
     };
     let divider = "─".repeat(width);
     row(
@@ -283,11 +416,23 @@ fn render(out: &mut impl Write, workspace: &mut Workspace) -> io::Result<()> {
         )),
     )?;
     row(2, Color::DarkGrey, &divider)?;
-    let footer = rows - 4;
+    let footer = rows - 5;
     if let Some(body) = &workspace.body {
+        if workspace.wrap_width != width {
+            workspace.wrapped_body.clear();
+            for line in body {
+                wrap(line, width, &mut workspace.wrapped_body);
+            }
+            workspace.wrap_width = width;
+        }
+        let body = &workspace.wrapped_body;
         let height = usize::from(footer - 3);
         workspace.scroll = workspace.scroll.min(body.len().saturating_sub(height));
-        for (y, text) in (3..footer).zip(body.iter().skip(workspace.scroll)) {
+        for y in 3..footer {
+            let text = body
+                .get(usize::from(y - 3) + workspace.scroll)
+                .map(String::as_str)
+                .unwrap_or("");
             row(y, if y == 3 { Color::Green } else { Color::White }, text)?;
         }
     } else {
@@ -301,7 +446,9 @@ fn render(out: &mut impl Write, workspace: &mut Workspace) -> io::Result<()> {
             "[TR] Türkçe  /  EN English  ·  /lang tr|en",
             "TR Türkçe  /  [EN] English  ·  /lang tr|en",
         ));
-        for (i, (y, text)) in (3..footer).zip(splash).enumerate() {
+        for y in 3..footer {
+            let i = usize::from(y - 3);
+            let text = splash.get(i).copied().unwrap_or("");
             row(
                 y,
                 if i == 0 { Color::Green } else { Color::White },
@@ -333,25 +480,60 @@ fn render(out: &mut impl Write, workspace: &mut Workspace) -> io::Result<()> {
     let first = workspace.cursor - tail.chars().count();
     let visible: String = workspace.input[first..].iter().collect();
     row(footer + 2, Color::White, &format!("{prefix}{visible}"))?;
-    if let Ok(path) = env::current_dir() {
-        row(
-            footer + 3,
-            Color::DarkGrey,
-            &format!("  {}", path.display()),
-        )?;
-    }
+    row(footer + 3, Color::Grey, "")?;
+    let directory = env::current_dir()
+        .map(|path| format!("  {}", path.display()))
+        .unwrap_or_default();
+    row(footer + 4, Color::DarkGrey, &directory)?;
     let cursor_x = (prefix.width() + tail.width()) as u16;
-    queue!(out, ResetColor, MoveTo(cursor_x, footer + 2), Show)?;
+    queue!(out, ResetColor, MoveTo(cursor_x, footer + 2))?;
+    if boot_frame.is_none() {
+        queue!(out, Show)?;
+    }
     out.flush()
+}
+
+fn play_opening(out: &mut impl Write, workspace: &mut Workspace) -> io::Result<Option<Event>> {
+    let (columns, rows) = terminal::size()?;
+    if columns < 33 || rows < 12 {
+        return Ok(None);
+    }
+    let start = Instant::now();
+    loop {
+        let elapsed = start.elapsed();
+        if elapsed >= boot::DURATION {
+            return Ok(None);
+        }
+        render(
+            out,
+            workspace,
+            Some(elapsed.as_secs_f64() / boot::DURATION.as_secs_f64()),
+        )?;
+        if !event::poll(boot::INTERVAL.min(boot::DURATION.saturating_sub(start.elapsed())))? {
+            continue;
+        }
+        match event::read()? {
+            Event::Key(key) if key.kind != KeyEventKind::Release => {
+                return Ok((key.code != KeyCode::Esc).then_some(Event::Key(key)));
+            }
+            Event::Paste(text) => return Ok(Some(Event::Paste(text))),
+            _ => {}
+        }
+    }
 }
 
 pub(crate) fn run() -> Result<()> {
     let _screen = Screen::enter()?;
     let mut out = io::stdout().lock();
     let mut workspace = Workspace::default();
-    render(&mut out, &mut workspace)?;
+    let mut pending = play_opening(&mut out, &mut workspace)?;
+    render(&mut out, &mut workspace, None)?;
     loop {
-        match event::read()? {
+        let next = match pending.take() {
+            Some(event) => event,
+            None => event::read()?,
+        };
+        match next {
             Event::Paste(text) => workspace.insert(text.chars()),
             Event::Resize(_, _) => {}
             Event::Key(key) if key.kind != KeyEventKind::Release => match key.code {
@@ -390,7 +572,7 @@ pub(crate) fn run() -> Result<()> {
             },
             _ => continue,
         }
-        render(&mut out, &mut workspace)?;
+        render(&mut out, &mut workspace, None)?;
     }
     Ok(())
 }

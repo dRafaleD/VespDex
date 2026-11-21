@@ -13,6 +13,12 @@ then `analyze` to view the sample. `export behavior.json` saves the report to a
 new file. Use `lang tr|en` to switch the interface language, `help` for the
 available commands, and `quit` to return to the shell.
 
+The welcome screen uses AsphDex's 3.4-second scan and portrait reveal. Press
+Esc to skip it. After analysis, use `timeline` for all events,
+`timeline dns-query` for DNS events, or `timeline all <GUID>` for one
+process. `processes` lists process GUIDs, recorded images, parents and event
+counts. Page Up and Page Down scroll through the results.
+
 Passing a capture path keeps the direct JSON output for scripts.
 
 ```powershell
