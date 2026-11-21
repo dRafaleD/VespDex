@@ -1,7 +1,14 @@
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = 'Evtx')]
 param(
-    [Parameter(Mandatory)]
+    [Parameter(Mandatory, ParameterSetName = 'Evtx')]
     [string] $Evtx,
+    [Parameter(Mandatory, ParameterSetName = 'Live')]
+    [switch] $Live,
+    [Parameter(Mandatory, ParameterSetName = 'Live')]
+    [datetimeoffset] $StartTime,
+    [Parameter(ParameterSetName = 'Live')]
+    [ValidateRange(0, 300)]
+    [int] $ObserveSeconds = 0,
     [Parameter(Mandatory)]
     [guid] $ProcessGuid,
     [Parameter(Mandatory)]
@@ -10,20 +17,52 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$path = (Get-Item -LiteralPath $Evtx).FullName
-if ([IO.Path]::GetExtension($path) -ine '.evtx' -or ![IO.File]::Exists($path)) {
-    throw 'Select an exported Sysmon .evtx file.'
-}
-if ((Get-Item -LiteralPath $path).Length -gt 128MB) { throw 'EVTX exceeds 128 MiB.' }
-
-$rows = @(Get-WinEvent -FilterHashtable @{
-    Path = $path
+$root = $ProcessGuid.ToString('B')
+if ($ProcessGuid -eq [guid]::Empty) { throw 'Select a nonzero process GUID.' }
+$filter = @{
     ProviderName = 'Microsoft-Windows-Sysmon'
     Id = 1, 3, 11, 13, 22
-} -Oldest -MaxEvents 20001)
+}
+$window = $null
+if ($Live) {
+    $now = [datetimeoffset]::UtcNow
+    if ($StartTime -gt $now -or $StartTime -lt $now.AddHours(-1)) {
+        throw 'Live StartTime must be within the past hour.'
+    }
+    $channel = 'Microsoft-Windows-Sysmon/Operational'
+    try {
+        $log = Get-WinEvent -ListLog $channel
+    } catch {
+        throw "Cannot access the Sysmon Operational log: $($_.Exception.Message)"
+    }
+    if (!$log.IsEnabled) { throw 'The Sysmon Operational log is disabled.' }
+    if ($ObserveSeconds -gt 0) { Start-Sleep -Seconds $ObserveSeconds }
+    $endTime = [datetimeoffset]::UtcNow
+    $filter.LogName = $channel
+    $filter.StartTime = $StartTime.UtcDateTime
+    $filter.EndTime = $endTime.UtcDateTime
+    $window = @{ start = $StartTime.ToUniversalTime().ToString('o'); end = $endTime.ToString('o') }
+    $source = "sysmon-local:$root"
+} else {
+    $path = (Get-Item -LiteralPath $Evtx).FullName
+    if ([IO.Path]::GetExtension($path) -ine '.evtx' -or ![IO.File]::Exists($path)) {
+        throw 'Select an exported Sysmon .evtx file.'
+    }
+    if ((Get-Item -LiteralPath $path).Length -gt 128MB) { throw 'EVTX exceeds 128 MiB.' }
+    $filter.Path = [WildcardPattern]::Escape($path)
+    $source = "sysmon-evtx:$root"
+}
+
+try {
+    $rows = @(Get-WinEvent -FilterHashtable $filter -Oldest -MaxEvents 20001)
+} catch {
+    if ($_.FullyQualifiedErrorId -like 'NoMatchingEventsFound,*') {
+        throw 'There are no supported Sysmon events in the selected capture.'
+    }
+    throw
+}
 if ($rows.Count -gt 20000) { throw 'Export a narrower log: more than 20,000 supported events.' }
 
-$root = $ProcessGuid.ToString('B')
 $starts = @{}
 $children = @{}
 $events = [Collections.Generic.List[object]]::new()
@@ -92,10 +131,12 @@ $timeline = @(foreach ($event in $events) {
 })
 if ($timeline.Count -gt 2000) { throw 'The selected process tree has more than 2,000 events.' }
 
-@{
+$capture = @{
     schemaVersion = 1
     caseId = $CaseId
     sampleSha256 = $sha256[0]
-    source = "sysmon-evtx:$root"
+    source = $source
     events = $timeline
-} | ConvertTo-Json -Depth 5 -Compress
+}
+if ($window) { $capture.captureWindow = $window }
+$capture | ConvertTo-Json -Depth 5 -Compress

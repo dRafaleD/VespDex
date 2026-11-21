@@ -28,7 +28,25 @@ struct Capture {
     case_id: String,
     sample_sha256: String,
     source: String,
+    capture_window: Option<CaptureWindow>,
     events: Vec<Event>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct CaptureWindow {
+    start: String,
+    end: String,
+}
+
+impl CaptureWindow {
+    fn bounds(&self) -> Result<(OffsetDateTime, OffsetDateTime)> {
+        let start =
+            OffsetDateTime::parse(&self.start, &Rfc3339).context("invalid capture start")?;
+        let end = OffsetDateTime::parse(&self.end, &Rfc3339).context("invalid capture end")?;
+        ensure!(start <= end, "capture end precedes capture start");
+        Ok((start, end))
+    }
 }
 
 #[derive(Deserialize, Serialize)]
@@ -75,6 +93,8 @@ struct Report {
     source: String,
     tool: &'static str,
     tool_version: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    capture_window: Option<CaptureWindow>,
     counts: BTreeMap<&'static str, usize>,
     processes: BTreeMap<String, ProcessSummary>,
     unattributed_event_count: usize,
@@ -145,6 +165,11 @@ fn analyze(capture: Capture) -> Result<Report> {
     );
     ensure!(capture.events.len() <= MAX_EVENTS, "too many events");
 
+    let bounds = capture
+        .capture_window
+        .as_ref()
+        .map(CaptureWindow::bounds)
+        .transpose()?;
     let mut timeline = Vec::with_capacity(capture.events.len());
     let mut counts = BTreeMap::new();
     let mut processes = BTreeMap::<String, ProcessSummary>::new();
@@ -159,6 +184,13 @@ fn analyze(capture: Capture) -> Result<Report> {
         );
         let timestamp = OffsetDateTime::parse(&event.timestamp, &Rfc3339)
             .with_context(|| format!("invalid RFC 3339 timestamp in event {}", index + 1))?;
+        if let Some((start, end)) = bounds {
+            ensure!(
+                (start..=end).contains(&timestamp),
+                "event {} is outside the capture window",
+                index + 1
+            );
+        }
         event.process_guid = event
             .process_guid
             .as_deref()
@@ -212,6 +244,7 @@ fn analyze(capture: Capture) -> Result<Report> {
         source: capture.source,
         tool: env!("CARGO_PKG_NAME"),
         tool_version: env!("CARGO_PKG_VERSION"),
+        capture_window: capture.capture_window,
         counts,
         processes,
         unattributed_event_count,

@@ -45,6 +45,30 @@ depends on the Sysmon configuration. The adapter rejects oversized exports
 instead of reporting a silently truncated process tree. Event descriptions are
 in the [Sysmon documentation](https://learn.microsoft.com/en-us/sysinternals/downloads/sysmon).
 
+## Collect a time window from the local Sysmon log
+
+Run the collector inside the Windows analysis environment where Sysmon is
+already enabled. Use the target's process GUID from Event ID 1 and set the
+start before that event. Optionally wait up to 300 seconds for more events
+before reading the log. The collector does not launch a process or change
+Sysmon settings.
+
+```powershell
+$start = [DateTimeOffset]::UtcNow.AddMinutes(-2)
+$processGuid = '11111111-1111-1111-1111-111111111111' # Replace with the recorded GUID.
+./scripts/convert-sysmon.ps1 -Live -StartTime $start -ObserveSeconds 30 -ProcessGuid $processGuid -CaseId case-001 |
+    Set-Content -Encoding utf8NoBOM capture.json
+cargo run --locked -- capture.json | Set-Content -Encoding utf8NoBOM behavior.json
+```
+
+Live captures record the requested start and actual collection cutoff in
+`captureWindow`. A completed query covers events still present in the channel
+and enabled by the Sysmon configuration. Late, filtered or overwritten events
+may be absent. The analyzer keeps the time window in the report and rejects
+events whose timestamps fall outside it.
+
+## Read the report in other tools
+
 Banshee's `behavior` command reports candidate DNS domains and destination IPs
 found in event detail. Its IOC line numbers are one-based positions in the
 sorted report's `events` array. AsphDex displays event counts for the current
