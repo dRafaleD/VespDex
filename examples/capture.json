@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "caseId": "demo-001",
+  "sampleSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "source": "synthetic-demo",
+  "events": [
+    {
+      "timestamp": "2026-11-21T10:00:02Z",
+      "kind": "dns-query",
+      "detail": "example.org"
+    },
+    {
+      "timestamp": "2026-11-21T10:00:00Z",
+      "kind": "process-start",
+      "detail": "demo.exe"
+    },
+    {
+      "timestamp": "2026-11-21T10:00:01Z",
+      "kind": "file-write",
+      "detail": "demo-output.txt"
+    }
+  ]
+}

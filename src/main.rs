@@ -1,0 +1,151 @@
+use std::{
+    collections::BTreeMap,
+    fs::File,
+    io::{self, Read, Write},
+    path::{Path, PathBuf},
+};
+
+use anyhow::{Context, Result, ensure};
+use clap::Parser;
+use serde::{Deserialize, Serialize};
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+
+const MAX_BYTES: u64 = 4 * 1024 * 1024;
+const MAX_EVENTS: usize = 2_000;
+const MAX_DETAIL: usize = 1_024;
+
+#[derive(Parser)]
+#[command(version, about = "Analyze recorded runtime telemetry offline")]
+struct Args {
+    /// Version 1 telemetry capture JSON
+    capture: PathBuf,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct Capture {
+    schema_version: u32,
+    case_id: String,
+    sample_sha256: String,
+    source: String,
+    events: Vec<Event>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct Event {
+    timestamp: String,
+    kind: EventKind,
+    detail: String,
+}
+
+#[derive(Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum EventKind {
+    ProcessStart,
+    FileWrite,
+    RegistryWrite,
+    NetworkConnection,
+    DnsQuery,
+}
+
+impl EventKind {
+    fn key(self) -> &'static str {
+        match self {
+            Self::ProcessStart => "process-start",
+            Self::FileWrite => "file-write",
+            Self::RegistryWrite => "registry-write",
+            Self::NetworkConnection => "network-connection",
+            Self::DnsQuery => "dns-query",
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Report {
+    kind: &'static str,
+    schema_version: u32,
+    case_id: String,
+    sample_sha256: String,
+    source: String,
+    tool_version: &'static str,
+    counts: BTreeMap<&'static str, usize>,
+    events: Vec<Event>,
+}
+
+fn read_capture(path: &Path) -> Result<Capture> {
+    ensure!(path.metadata()?.is_file(), "capture must be a regular file");
+    let mut bytes = Vec::new();
+    File::open(path)?
+        .take(MAX_BYTES + 1)
+        .read_to_end(&mut bytes)?;
+    ensure!(bytes.len() as u64 <= MAX_BYTES, "capture exceeds 4 MiB");
+    serde_json::from_slice(&bytes).context("invalid telemetry capture JSON")
+}
+
+fn analyze(capture: Capture) -> Result<Report> {
+    ensure!(
+        capture.schema_version == 1,
+        "unsupported capture schema version"
+    );
+    ensure!(
+        (1..=64).contains(&capture.case_id.len())
+            && capture
+                .case_id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'),
+        "case ID must contain 1–64 ASCII letters, digits, hyphens or underscores"
+    );
+    ensure!(
+        capture.sample_sha256.len() == 64
+            && capture.sample_sha256.bytes().all(|b| b.is_ascii_hexdigit()),
+        "invalid sample SHA-256"
+    );
+    ensure!(
+        !capture.source.trim().is_empty()
+            && capture.source.len() <= 128
+            && !capture.source.chars().any(char::is_control),
+        "invalid capture source"
+    );
+    ensure!(capture.events.len() <= MAX_EVENTS, "too many events");
+
+    let mut timeline = Vec::with_capacity(capture.events.len());
+    let mut counts = BTreeMap::new();
+    for (index, event) in capture.events.into_iter().enumerate() {
+        ensure!(
+            !event.detail.trim().is_empty()
+                && event.detail.len() <= MAX_DETAIL
+                && !event.detail.chars().any(char::is_control),
+            "invalid detail in event {}",
+            index + 1
+        );
+        let timestamp = OffsetDateTime::parse(&event.timestamp, &Rfc3339)
+            .with_context(|| format!("invalid RFC 3339 timestamp in event {}", index + 1))?;
+        *counts.entry(event.kind.key()).or_insert(0) += 1;
+        timeline.push((timestamp, event));
+    }
+    timeline.sort_by_key(|(timestamp, _)| *timestamp);
+
+    Ok(Report {
+        kind: "asphdex-behavior-report",
+        schema_version: 1,
+        case_id: capture.case_id,
+        sample_sha256: capture.sample_sha256.to_ascii_lowercase(),
+        source: capture.source,
+        tool_version: env!("CARGO_PKG_VERSION"),
+        counts,
+        events: timeline.into_iter().map(|(_, event)| event).collect(),
+    })
+}
+
+fn main() -> Result<()> {
+    let args = Args::parse();
+    let report = analyze(read_capture(&args.capture).context("unable to read capture")?)?;
+    let bytes = serde_json::to_vec(&report)?;
+    ensure!(bytes.len() as u64 + 1 <= MAX_BYTES, "report exceeds 4 MiB");
+    let mut output = io::stdout().lock();
+    output.write_all(&bytes)?;
+    writeln!(output)?;
+    Ok(())
+}
