@@ -305,6 +305,7 @@ impl Workspace {
             ui.add_space(24.0);
             panel_heading(ui, "Yeni inceleme");
             panel(SURFACE, 22, 22).show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
                 ui.vertical_centered(|ui| {
                     draw_mask(ui, 1.95);
                     ui.add_space(18.0);
@@ -347,6 +348,7 @@ impl Workspace {
             });
             ui.add_space(12.0);
             panel(SURFACE, 16, 14).show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
                 ui.strong("Kayıt bilgileri");
                 ui.add_space(8.0);
                 ui.label(format!("Vaka  {}", report.case_id));
@@ -372,6 +374,7 @@ impl Workspace {
             });
             ui.add_space(12.0);
             panel(SURFACE, 16, 14).show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
                 ui.strong("Olay türleri");
                 ui.add_space(6.0);
                 for kind in EventKind::ALL {
@@ -565,7 +568,8 @@ fn processes(ui: &mut egui::Ui, report: &Report) -> Option<String> {
         .id_salt("process-list")
         .show(ui, |ui| {
             for (guid, process) in &report.processes {
-                ui.group(|ui| {
+                panel(SURFACE, 14, 10).show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
                     ui.horizontal(|ui| {
                         ui.strong(
                             process
