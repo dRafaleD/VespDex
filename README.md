@@ -2,6 +2,16 @@
 
 VespDex analyzes recorded runtime telemetry in Rust and exchanges reports with AsphDex and Banshee. It builds a timeline, groups events by process and accepts recordings from Windows Sysmon. Use the fictional capture for demonstration.
 
+## Terminal workspace
+
+Run `vespdex` with no arguments in an interactive terminal, or use
+`cargo run --locked` from the source checkout. Use `open examples/capture.json`
+then `analyze` to view the sample. `export behavior.json` saves the report to a
+new file. Use `lang tr|en` to switch the interface language, `help` for the
+available commands, and `quit` to return to the shell.
+
+Passing a capture path keeps the direct JSON output for scripts.
+
 ```powershell
 # PowerShell 7+
 cargo run --locked -- examples/capture.json | Set-Content -Encoding utf8NoBOM behavior.json

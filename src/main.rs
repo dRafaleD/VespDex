@@ -1,7 +1,7 @@
 use std::{
     collections::BTreeMap,
     fs::File,
-    io::{self, Read, Write},
+    io::{self, IsTerminal, Read, Write},
     path::{Path, PathBuf},
 };
 
@@ -9,6 +9,8 @@ use anyhow::{Context, Result, ensure};
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+
+mod terminal;
 
 const MAX_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_EVENTS: usize = 2_000;
@@ -252,13 +254,19 @@ fn analyze(capture: Capture) -> Result<Report> {
     })
 }
 
+fn encoded_report(report: &Report) -> Result<Vec<u8>> {
+    let mut bytes = serde_json::to_vec(report)?;
+    ensure!(bytes.len() as u64 + 1 <= MAX_BYTES, "report exceeds 4 MiB");
+    bytes.push(b'\n');
+    Ok(bytes)
+}
+
 fn main() -> Result<()> {
+    if std::env::args_os().len() == 1 && io::stdin().is_terminal() && io::stdout().is_terminal() {
+        return terminal::run();
+    }
     let args = Args::parse();
     let report = analyze(read_capture(&args.capture).context("unable to read capture")?)?;
-    let bytes = serde_json::to_vec(&report)?;
-    ensure!(bytes.len() as u64 + 1 <= MAX_BYTES, "report exceeds 4 MiB");
-    let mut output = io::stdout().lock();
-    output.write_all(&bytes)?;
-    writeln!(output)?;
+    io::stdout().lock().write_all(&encoded_report(&report)?)?;
     Ok(())
 }
