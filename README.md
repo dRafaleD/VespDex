@@ -4,8 +4,11 @@ VespDex analyzes recorded runtime telemetry in Rust and exchanges reports with A
 
 ## Terminal workspace
 
-Run `vespdex` with no arguments in an interactive terminal, or use
-`cargo run --locked` from the source checkout. Use `open examples/capture.json`
+Install from the source checkout with `cargo install --path . --locked`.
+Make sure Cargo's bin directory is on `PATH` (`%USERPROFILE%\.cargo\bin` on
+Windows by default), then run `vespdex` with no arguments in an interactive
+terminal. To open the workspace from the checkout without installing, run
+`cargo run --locked`. From the checkout directory, use `open examples/capture.json`
 then `analyze` to view the sample. `export behavior.json` saves the report to a
 new file. Use `lang tr|en` to switch the interface language, `help` for the
 available commands, and `quit` to return to the shell.
