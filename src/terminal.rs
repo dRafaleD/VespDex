@@ -22,20 +22,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use crate::{EventKind, Report, analyze, encoded_report, normalize_guid, read_capture};
 
 mod boot;
-
-// AsphDex terminal portrait. See NOTICE for attribution and license.
-const EMBLEM: &[&str] = &[
-    "    ⣤⡶⠋⠉⠉⠁⣲⣤    ",
-    "  ⢠⣾⡯⠠     ⠈⣿⡄  ",
-    " ⢀⣟⣹⡅       ⣿⣿⡀ ",
-    " ⣸⠏⢭⣄⣀⡀   ⣀⣠⣭⠝⣇ ",
-    "⠉⢻⡄⣧⣀⢀⣈⠆⠸⣉⡀⢀⡼⢧⡟⠉",
-    " ⠘⡵⠴⠆⠉    ⠉⠁⠖⢬⠃ ",
-    "  ⠙⣧⠆       ⣶⠋  ",
-    "  ⠘⠞⣷⡀     ⢰⠳⠃  ",
-    "    ⠙⣷    ⡶⠋    ",
-    "     ⠈⠹⢄⡤⠋⠁     ",
-];
+pub(crate) mod portrait;
 const MAX_INPUT_CHARS: usize = 4096;
 
 struct Screen;
@@ -436,24 +423,84 @@ fn render(
             row(y, if y == 3 { Color::Green } else { Color::White }, text)?;
         }
     } else {
-        let mut splash = vec!["VespDex", ""];
-        if footer - 3 >= 15 {
-            splash.extend(EMBLEM);
-            splash.push("");
-        }
-        splash.push("open <file>  ·  analyze  ·  help");
-        splash.push(workspace.text(
+        let room = usize::from(footer - 3);
+        let wide = cols >= 80 && rows >= 26;
+        let budget = if wide {
+            room.saturating_sub(2)
+        } else {
+            room.saturating_sub(5)
+        };
+        let budget = budget.min(width * 5 / 8);
+        let mask = if budget >= 5 {
+            portrait::mask(budget)
+        } else {
+            &[]
+        };
+        let mask_width = mask.iter().map(|line| line.width()).max().unwrap_or(0);
+        let language = workspace.text(
             "[TR] Türkçe  /  EN English  ·  /lang tr|en",
             "TR Türkçe  /  [EN] English  ·  /lang tr|en",
-        ));
+        );
+        let mut splash = vec![
+            (
+                centered(
+                    if wide {
+                        "◇  V E S P D E X  ◇"
+                    } else {
+                        "VespDex"
+                    },
+                    width,
+                ),
+                Color::Green,
+            ),
+            (String::new(), Color::White),
+        ];
+        if wide {
+            let info = [
+                format!("VespDex {}", env!("CARGO_PKG_VERSION")),
+                "─".repeat(27),
+                format!(
+                    "{}   {} · {}",
+                    workspace.text("Sistem", "System"),
+                    env::consts::OS,
+                    env::consts::ARCH
+                ),
+                workspace
+                    .text("Mod      Davranış analizi", "Mode     Behavior analysis")
+                    .into(),
+                workspace.text("Dil      Türkçe", "Language English").into(),
+                String::new(),
+                "open <file>  ·  analyze".into(),
+                "help  ·  lang tr|en".into(),
+            ];
+            let info_width = info.iter().map(|line| line.width()).max().unwrap_or(0);
+            let inset = " ".repeat(width.saturating_sub(mask_width + 5 + info_width) / 2);
+            for index in 0..mask.len().max(info.len()) {
+                let line = mask.get(index).copied().unwrap_or("");
+                let padding = " ".repeat(mask_width.saturating_sub(line.width()) + 5);
+                let label = info.get(index).map(String::as_str).unwrap_or("");
+                splash.push((format!("{inset}{line}{padding}{label}"), Color::Green));
+            }
+        } else {
+            let inset = " ".repeat(width.saturating_sub(mask_width) / 2);
+            splash.extend(
+                mask.iter()
+                    .map(|line| (format!("{inset}{line}"), Color::Green)),
+            );
+            splash.push((String::new(), Color::White));
+            splash.push((
+                centered("open <file>  ·  analyze  ·  help", width),
+                Color::Green,
+            ));
+            splash.push((centered(language, width), Color::Green));
+        }
         for y in 3..footer {
             let i = usize::from(y - 3);
-            let text = splash.get(i).copied().unwrap_or("");
-            row(
-                y,
-                if i == 0 { Color::Green } else { Color::White },
-                &centered(text, width),
-            )?;
+            let (text, color) = splash
+                .get(i)
+                .map(|(text, color)| (text.as_str(), *color))
+                .unwrap_or(("", Color::White));
+            row(y, color, text)?;
         }
     }
     row(footer, Color::DarkGrey, &divider)?;

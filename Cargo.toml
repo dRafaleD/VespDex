@@ -11,3 +11,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 time = { version = "0.3", features = ["parsing"] }
 unicode-width = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+eframe = { version = "0.31.1", default-features = false, features = ["default_fonts", "glow"] }
+rfd = { version = "0.15.4", default-features = false }

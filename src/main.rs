@@ -10,6 +10,8 @@ use clap::Parser;
 use serde::{Deserialize, Serialize};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
+#[cfg(windows)]
+mod gui;
 mod terminal;
 
 const MAX_BYTES: u64 = 4 * 1024 * 1024;
@@ -20,7 +22,11 @@ const MAX_DETAIL: usize = 1_024;
 #[command(version, about = "Analyze recorded runtime telemetry offline")]
 struct Args {
     /// Version 1 telemetry capture JSON
-    capture: PathBuf,
+    #[arg(required_unless_present = "gui")]
+    capture: Option<PathBuf>,
+    /// Open the Windows desktop workspace
+    #[arg(long)]
+    gui: bool,
 }
 
 #[derive(Deserialize)]
@@ -63,7 +69,7 @@ struct Event {
     parent_process_guid: Option<String>,
 }
 
-#[derive(Clone, Copy, Deserialize, Serialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 enum EventKind {
     ProcessStart,
@@ -274,7 +280,14 @@ fn main() -> Result<()> {
         return terminal::run();
     }
     let args = Args::parse();
-    let report = analyze(read_capture(&args.capture).context("unable to read capture")?)?;
+    if args.gui {
+        #[cfg(windows)]
+        return gui::run(args.capture);
+        #[cfg(not(windows))]
+        anyhow::bail!("the desktop workspace is available on Windows");
+    }
+    let capture = args.capture.context("a telemetry capture is required")?;
+    let report = analyze(read_capture(&capture).context("unable to read capture")?)?;
     io::stdout().lock().write_all(&encoded_report(&report)?)?;
     Ok(())
 }

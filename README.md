@@ -2,6 +2,20 @@
 
 VespDex analyzes recorded runtime telemetry in Rust and exchanges reports with AsphDex and Banshee. It builds a timeline, groups events by process and accepts recordings from Windows Sysmon. Use the fictional capture for demonstration.
 
+## Windows desktop workspace
+
+Run `vespdex --gui` and choose **Kayıt aç** to open telemetry JSON. The
+timeline can be filtered by event type. In the process view, **Olayları göster**
+opens the timeline filtered to that process. **Raporu kaydet** exports the same
+JSON report used by the CLI. Open the example directly with:
+
+```powershell
+cargo run --locked -- --gui examples/capture.json
+```
+
+This desktop view analyzes saved telemetry. Collect Sysmon events separately
+using the collector below.
+
 ## Terminal workspace
 
 Install from the source checkout with `cargo install --path . --locked`.
@@ -13,7 +27,8 @@ then `analyze` to view the sample. `export behavior.json` saves the report to a
 new file. Use `lang tr|en` to switch the interface language, `help` for the
 available commands, and `quit` to return to the shell.
 
-The welcome screen uses AsphDex's 3.4-second scan and portrait reveal. Press
+The welcome screen uses AsphDex's 3.4-second scan and all seven original
+portrait sizes, choosing a size for the available terminal space. Press
 Esc to skip it. After analysis, use `timeline` for all events,
 `timeline dns-query` for DNS events, or `timeline all <GUID>` for one
 process. `processes` lists process GUIDs, recorded images, parents and event
