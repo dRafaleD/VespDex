@@ -149,7 +149,15 @@ $timeline = @(foreach ($event in $events) {
     $fields = $event.Fields
     $kind, $detail = switch ($event.Id) {
         1 { 'process-start'; $fields['Image'] }
-        3 { 'network-connection'; "$($fields['DestinationIp']) $($fields['DestinationHostname'])" }
+        3 {
+            'network-connection'
+            $destination = "$($fields['DestinationIp']) $($fields['DestinationHostname'])".Trim()
+            $port = [uint16] 0
+            if ([uint16]::TryParse($fields['DestinationPort'], [ref] $port)) {
+                $destination = "$destination port=$port"
+            }
+            $destination
+        }
         11 { 'file-write'; $fields['TargetFilename'] }
         13 { 'registry-write'; $fields['TargetObject'] }
         22 { 'dns-query'; $fields['QueryName'] }

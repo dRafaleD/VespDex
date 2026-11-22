@@ -12,10 +12,22 @@ New-Item -ItemType Directory -Path $work | Out-Null
 $writtenFile = Join-Path $work 'marker.txt'
 $captureFile = Join-Path $work 'capture.json'
 $evtx = Join-Path $work 'capture.evtx'
+$listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
 try {
+    $listener.Start()
+    $port = $listener.LocalEndpoint.Port
     $engine = Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
-    $writeMarker = "[IO.File]::WriteAllText([Environment]::GetEnvironmentVariable('VESPDEX_SMOKE_FILE'), 'benign marker')"
-    $encodedChild = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($writeMarker))
+    $childScript = @'
+$ErrorActionPreference = 'Stop'
+[IO.File]::WriteAllText([Environment]::GetEnvironmentVariable('VESPDEX_SMOKE_FILE'), 'benign marker')
+$client = [Net.Sockets.TcpClient]::new()
+try {
+    $client.Connect([Net.IPAddress]::Loopback, [int] $env:VESPDEX_SMOKE_PORT)
+} finally {
+    $client.Dispose()
+}
+'@
+    $encodedChild = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($childScript))
     $startChild = ('& ([Environment]::GetEnvironmentVariable(''VESPDEX_SMOKE_ENGINE'')) -NoProfile -NonInteractive -EncodedCommand {0}; exit $LASTEXITCODE' -f $encodedChild)
     $start = [Diagnostics.ProcessStartInfo]::new()
     $start.FileName = $engine
@@ -25,6 +37,7 @@ try {
     $start.CreateNoWindow = $true
     $start.EnvironmentVariables['VESPDEX_SMOKE_FILE'] = $writtenFile
     $start.EnvironmentVariables['VESPDEX_SMOKE_ENGINE'] = $engine
+    $start.EnvironmentVariables['VESPDEX_SMOKE_PORT'] = [string] $port
 
     $begin = [datetimeoffset]::UtcNow.AddSeconds(-1)
     $root = [Diagnostics.Process]::Start($start)
@@ -37,6 +50,8 @@ try {
         if ($root.ExitCode -ne 0 -or !(Test-Path -LiteralPath $writtenFile -PathType Leaf)) {
             throw 'The benign fixture did not write its marker.'
         }
+        if (!$listener.Pending()) { throw 'The benign fixture did not connect to the loopback listener.' }
+        $listener.AcceptTcpClient().Dispose()
         $rootPid = $root.Id
     } finally {
         $root.Dispose()
@@ -91,6 +106,14 @@ try {
         if ($marker.Count -lt 1) {
             throw "Sysmon did not attribute the marker file creation (event ID 11) to a direct fixture child in $($report.caseId). Matching child images: $($children.Count)."
         }
+        $markerChildren = @($marker | ForEach-Object { $_.processGuid })
+        $network = @($report.events | Where-Object {
+            $_.kind -eq 'network-connection' -and $_.processGuid -in $markerChildren -and
+                $_.detail -match '^127\.0\.0\.1(?:\s|$)' -and $_.detail.EndsWith(" port=$port")
+        })
+        if ($network.Count -lt 1) {
+            throw "Sysmon did not attribute the loopback connection (event ID 3) to the marker writer in $($report.caseId)."
+        }
         if ($report.caseId -eq 'accept-live' -and !$report.captureWindow) {
             throw 'The live report omitted the observation window.'
         }
@@ -99,11 +122,13 @@ try {
             root_sha256_matches = $true
             fixture_children = $children.Count
             attributed_marker_events = $marker.Count
+            attributed_loopback_events = $network.Count
             capture_window_recorded = [bool] $report.captureWindow
         }
     }
     $assertions | ConvertTo-Json -Depth 4
 } finally {
+    $listener.Stop()
     foreach ($file in @($writtenFile, $captureFile, $evtx)) {
         if (Test-Path -LiteralPath $file -PathType Leaf) { Remove-Item -LiteralPath $file }
     }

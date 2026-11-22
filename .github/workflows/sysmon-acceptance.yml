@@ -38,6 +38,9 @@ jobs:
             <HashAlgorithms>SHA256</HashAlgorithms>
             <EventFiltering>
               <ProcessCreate onmatch="exclude" />
+              <NetworkConnect onmatch="include">
+                <DestinationIp>127.0.0.1</DestinationIp>
+              </NetworkConnect>
               <FileCreate onmatch="include">
                 <TargetFilename condition="end with">\marker.txt</TargetFilename>
               </FileCreate>
