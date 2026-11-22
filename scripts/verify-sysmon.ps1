@@ -1,5 +1,8 @@
 [CmdletBinding()]
-param([Parameter(Mandatory)][string] $VespDex)
+param(
+    [Parameter(Mandatory)][string] $VespDex,
+    [string] $FixtureEvtx
+)
 
 $ErrorActionPreference = 'Stop'
 $binary = (Get-Item -LiteralPath $VespDex).FullName
@@ -12,6 +15,7 @@ New-Item -ItemType Directory -Path $work | Out-Null
 $writtenFile = Join-Path $work 'marker.txt'
 $captureFile = Join-Path $work 'capture.json'
 $evtx = Join-Path $work 'capture.evtx'
+$fixture = Join-Path $work 'isolated-fixture.evtx'
 $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
 try {
     $listener.Start()
@@ -127,9 +131,43 @@ try {
         }
     }
     $assertions | ConvertTo-Json -Depth 4
+
+    if ($FixtureEvtx) {
+        # Copy raw events only for the root and the verified child that wrote
+        # the benign file. Keep the larger working export local to this run.
+        $subjects = @($rootGuid.ToString('D')) + @($markerChildren | Select-Object -Unique)
+        $startRows = @(Get-WinEvent -FilterHashtable @{LogName = $channel; Id = 1; StartTime = $begin.UtcDateTime} -MaxEvents 2000)
+        $rawIds = @(foreach ($row in $startRows) {
+            [xml] $xml = $row.ToXml()
+            $node = $xml.Event.EventData.Data | Where-Object { $_.GetAttribute('Name') -eq 'ProcessGuid' } | Select-Object -First 1
+            $value = [guid]::Empty
+            if ($node -and [guid]::TryParse($node.InnerText, [ref] $value) -and $value.ToString('D') -in $subjects) {
+                $node.InnerText
+            }
+        })
+        if ($rawIds.Count -ne $subjects.Count) { throw 'Could not isolate the fixture process IDs.' }
+        $conditions = @($rawIds | ForEach-Object { "Data[@Name='ProcessGuid']='$_'" }) -join ' or '
+        $isolatedQuery = "*[System[(EventID=1 or EventID=3 or EventID=11)]] and *[EventData[$conditions]]"
+        & "$env:SystemRoot/System32/wevtutil.exe" epl $channel $fixture "/q:$isolatedQuery"
+        if ($LASTEXITCODE -ne 0) { throw 'Could not export the isolated EVTX fixture.' }
+        foreach ($row in (Get-WinEvent -Path $fixture -MaxEvents 33)) {
+            [xml] $xml = $row.ToXml()
+            $node = $xml.Event.EventData.Data | Where-Object { $_.GetAttribute('Name') -eq 'ProcessGuid' } | Select-Object -First 1
+            if ($row.ProviderName -ne 'Microsoft-Windows-Sysmon' -or !$node -or $node.InnerText -notin $rawIds) {
+                throw 'Isolated EVTX contains unrelated events.'
+            }
+        }
+        $isolatedCapture = & $convert -Evtx $fixture -ProcessGuid $rootGuid -CaseId accept-fixture | ConvertFrom-Json
+        $kinds = @($isolatedCapture.events.kind)
+        if ($isolatedCapture.events.Count -gt 32 -or 'file-write' -notin $kinds -or 'network-connection' -notin $kinds) {
+            throw 'Isolated EVTX does not contain the expected small fixture.'
+        }
+        $destination = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($FixtureEvtx)
+        [IO.File]::Copy($fixture, $destination, $false)
+    }
 } finally {
     $listener.Stop()
-    foreach ($file in @($writtenFile, $captureFile, $evtx)) {
+    foreach ($file in @($writtenFile, $captureFile, $evtx, $fixture)) {
         if (Test-Path -LiteralPath $file -PathType Leaf) { Remove-Item -LiteralPath $file }
     }
     Remove-Item -LiteralPath $work

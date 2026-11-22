@@ -51,4 +51,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Sysmon installation failed ($LASTEXITCODE)." }
       - name: Verify live and EVTX behavior from a benign fixture
         shell: pwsh
-        run: ./scripts/verify-sysmon.ps1 -VespDex ./target/release/vespdex.exe
+        run: ./scripts/verify-sysmon.ps1 -VespDex ./target/release/vespdex.exe -FixtureEvtx ./vespdex-sysmon-fixture.evtx
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: sysmon-benign-fixture
+          path: vespdex-sysmon-fixture.evtx
+          if-no-files-found: error
+          retention-days: 7
