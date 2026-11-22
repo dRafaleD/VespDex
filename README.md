@@ -4,7 +4,9 @@ VespDex analyzes recorded runtime telemetry in Rust and exchanges reports with A
 
 ## Windows desktop workspace
 
-Run `vespdex --gui` and choose **Kayıt aç** to open telemetry JSON. The
+Run `vespdex --gui` and choose **DOSYA SEÇ** to open telemetry JSON or an
+exported Windows Sysmon EVTX. For EVTX, choose a process with a recorded
+SHA-256 to analyze its process tree. The
 timeline can be filtered by event type. In the process view, **Olayları göster**
 opens the timeline filtered to that process. **Raporu kaydet** exports the same
 JSON report used by the CLI. Open the example directly with:
@@ -13,8 +15,7 @@ JSON report used by the CLI. Open the example directly with:
 cargo run --locked -- --gui examples/capture.json
 ```
 
-This desktop view analyzes saved telemetry. Collect Sysmon events separately
-using the collector below.
+For live Sysmon capture, use the collector below.
 
 ## Terminal workspace
 

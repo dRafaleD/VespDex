@@ -10,6 +10,8 @@ use eframe::egui::{self, Color32, RichText, Stroke, Vec2};
 
 use crate::{EventKind, Report, analyze, encoded_report, read_capture};
 
+mod sysmon;
+
 // AsphDex's green Dark palette (css/style.css).
 const BG: Color32 = Color32::from_rgb(5, 8, 6);
 const SURFACE: Color32 = Color32::from_rgb(9, 16, 12);
@@ -24,6 +26,7 @@ const MUTED: Color32 = Color32::from_rgb(130, 153, 138);
 enum View {
     #[default]
     Start,
+    ChooseProcess,
     Overview,
     Timeline,
     Processes,
@@ -33,6 +36,7 @@ impl View {
     fn label(&self) -> &'static str {
         match self {
             Self::Start => "Başlangıç",
+            Self::ChooseProcess => "Başlangıç süreci",
             Self::Overview => "Genel Bakış",
             Self::Timeline => "Zaman Çizelgesi",
             Self::Processes => "Süreçler",
@@ -41,7 +45,7 @@ impl View {
 
     fn group(&self) -> &'static str {
         match self {
-            Self::Start | Self::Overview => "Analiz",
+            Self::Start | Self::ChooseProcess | Self::Overview => "Analiz",
             Self::Timeline | Self::Processes => "İnceleme",
         }
     }
@@ -52,12 +56,19 @@ struct Workspace {
     mask: Option<egui::TextureHandle>,
     path: Option<PathBuf>,
     report: Option<Report>,
-    pending: Option<Receiver<Result<Report>>>,
+    pending: Option<Receiver<Result<Loaded>>>,
+    candidates: Vec<sysmon::Candidate>,
+    process_search: String,
     message: Option<(bool, String)>,
     view: View,
     event_kind: Option<EventKind>,
     process_guid: Option<String>,
     selected_event: Option<usize>,
+}
+
+enum Loaded {
+    Report(Report),
+    Processes(Vec<sysmon::Candidate>),
 }
 
 pub(crate) fn run(path: Option<PathBuf>) -> Result<()> {
@@ -117,19 +128,38 @@ pub(crate) fn run(path: Option<PathBuf>) -> Result<()> {
 
 impl Workspace {
     fn load(&mut self, path: PathBuf, ctx: &egui::Context) {
-        let (sender, receiver) = mpsc::channel();
-        let input = path.clone();
-        let ctx = ctx.clone();
-        self.pending = Some(receiver);
-        self.path = Some(path);
+        self.path = Some(path.clone());
         self.report = None;
-        self.message = None;
-        self.view = View::Overview;
+        self.candidates.clear();
+        self.process_search.clear();
+        self.view = View::Start;
         self.event_kind = None;
         self.process_guid = None;
         self.selected_event = None;
+        let evtx = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("evtx"));
+        self.start_job(ctx, move || {
+            if evtx {
+                sysmon::list(&path).map(Loaded::Processes)
+            } else {
+                read_capture(&path).and_then(analyze).map(Loaded::Report)
+            }
+        });
+    }
+
+    fn start_job(
+        &mut self,
+        ctx: &egui::Context,
+        job: impl FnOnce() -> Result<Loaded> + Send + 'static,
+    ) {
+        let (sender, receiver) = mpsc::channel();
+        let ctx = ctx.clone();
+        self.pending = Some(receiver);
+        self.message = None;
         std::thread::spawn(move || {
-            let _ = sender.send(read_capture(&input).and_then(analyze));
+            let _ = sender.send(job());
             ctx.request_repaint();
         });
     }
@@ -140,7 +170,17 @@ impl Workspace {
             Ok(result) => {
                 self.pending = None;
                 match result {
-                    Ok(report) => self.report = Some(report),
+                    Ok(Loaded::Report(report)) => {
+                        self.report = Some(report);
+                        self.event_kind = None;
+                        self.process_guid = None;
+                        self.selected_event = None;
+                        self.view = View::Overview;
+                    }
+                    Ok(Loaded::Processes(candidates)) => {
+                        self.candidates = candidates;
+                        self.view = View::ChooseProcess;
+                    }
                     Err(error) => {
                         self.message = Some((true, format!("Kayıt açılamadı: {error:#}")))
                     }
@@ -184,9 +224,6 @@ impl Workspace {
 impl eframe::App for Workspace {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll();
-        if self.report.is_none() && self.pending.is_none() {
-            self.view = View::Start;
-        }
         if self.pending.is_none() {
             let dropped = ctx.input(|input| {
                 input
@@ -247,6 +284,9 @@ impl eframe::App for Workspace {
                 ui.strong("Analiz");
                 ui.add_space(8.0);
                 nav(ui, &mut self.view, View::Start, true);
+                if !self.candidates.is_empty() {
+                    nav(ui, &mut self.view, View::ChooseProcess, true);
+                }
                 nav(ui, &mut self.view, View::Overview, self.report.is_some());
                 ui.add_space(23.0);
                 ui.strong("İnceleme");
@@ -282,6 +322,7 @@ impl eframe::App for Workspace {
                     .inner_margin(egui::Margin::symmetric(24, 22))
                     .show(ui, |ui| match self.view {
                         View::Start => self.start(ui, ctx),
+                        View::ChooseProcess => self.choose_process(ui, ctx),
                         View::Overview if self.report.is_some() => self.overview(ui),
                         View::Timeline if self.report.is_some() => {
                             let report = self.report.as_ref().expect("view has a report");
@@ -313,6 +354,76 @@ impl eframe::App for Workspace {
 }
 
 impl Workspace {
+    fn choose_process(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        panel_heading(ui, "Başlangıç sürecini seç");
+        ui.label(RichText::new("Sysmon tarafından SHA-256 değeri kaydedilmiş süreçler. Seçilen süreç ve alt süreçleri rapora girer.").color(MUTED));
+        ui.add_space(8.0);
+        ui.add(
+            egui::TextEdit::singleline(&mut self.process_search)
+                .hint_text("Dosya adı, süreç GUID veya SHA-256 ile ara")
+                .char_limit(160)
+                .desired_width(370.0),
+        );
+        let filter = self.process_search.trim().to_lowercase();
+        let entries: Vec<_> = self
+            .candidates
+            .iter()
+            .filter(|candidate| {
+                filter.is_empty()
+                    || candidate.image.to_lowercase().contains(&filter)
+                    || candidate.guid.contains(&filter)
+                    || candidate.sha256.contains(&filter)
+            })
+            .collect();
+        ui.label(
+            RichText::new(format!(
+                "{} / {} süreç",
+                entries.len(),
+                self.candidates.len()
+            ))
+            .color(MUTED),
+        );
+
+        let mut selected = None;
+        let available = self.pending.is_none();
+        egui::ScrollArea::vertical()
+            .id_salt(("sysmon-processes", &filter))
+            .auto_shrink([false, false])
+            .show_rows(ui, 28.0, entries.len(), |ui, rows| {
+                for candidate in &entries[rows] {
+                    let name = std::path::Path::new(&candidate.image)
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or(&candidate.image);
+                    let label = format!("{name}    {}    {}", candidate.timestamp, candidate.guid);
+                    let response = ui
+                        .add_enabled(
+                            available,
+                            egui::Button::new(label)
+                                .truncate()
+                                .min_size(Vec2::new(ui.available_width(), 28.0)),
+                        )
+                        .on_hover_text(format!(
+                            "{}\nSHA-256 {}",
+                            candidate.image, candidate.sha256
+                        ));
+                    if response.clicked() {
+                        selected = Some((candidate.guid.clone(), candidate.sha256.clone()));
+                    }
+                }
+            });
+        if let (Some((guid, expected_hash)), Some(path)) = (selected, self.path.clone()) {
+            self.start_job(ctx, move || {
+                let report = sysmon::convert(&path, &guid)?;
+                anyhow::ensure!(
+                    report.sample_sha256 == expected_hash,
+                    "selected process no longer matches the EVTX process list"
+                );
+                Ok(Loaded::Report(report))
+            });
+        }
+    }
+
     fn show_mask(&self, ui: &mut egui::Ui, size: f32) {
         if let Some(mask) = &self.mask {
             ui.image((mask.id(), Vec2::splat(size)));
@@ -331,7 +442,7 @@ impl Workspace {
                     ui.add_space(18.0);
                     ui.heading("Telemetri kaydı yükle");
                     ui.label(
-                        RichText::new("JSON dosyasını bu pencereye sürükle veya dosya seç.")
+                        RichText::new("Telemetri JSON veya Sysmon EVTX dosyasını buraya sürükle.")
                             .color(MUTED),
                     );
                     ui.add_space(12.0);
@@ -438,7 +549,7 @@ fn open_button(ui: &mut egui::Ui, workspace: &mut Workspace, ctx: &egui::Context
         .add_enabled(workspace.pending.is_none(), button)
         .clicked()
         && let Some(path) = rfd::FileDialog::new()
-            .add_filter("JSON", &["json"])
+            .add_filter("Telemetri kayıtları", &["json", "evtx"])
             .pick_file()
     {
         workspace.load(path, ctx);

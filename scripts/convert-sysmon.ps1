@@ -1,7 +1,10 @@
 [CmdletBinding(DefaultParameterSetName = 'Evtx')]
 param(
     [Parameter(Mandatory, ParameterSetName = 'Evtx')]
+    [Parameter(Mandatory, ParameterSetName = 'List')]
     [string] $Evtx,
+    [Parameter(Mandatory, ParameterSetName = 'List')]
+    [switch] $ListProcesses,
     [Parameter(Mandatory, ParameterSetName = 'Live')]
     [switch] $Live,
     [Parameter(Mandatory, ParameterSetName = 'Live')]
@@ -9,20 +12,26 @@ param(
     [Parameter(ParameterSetName = 'Live')]
     [ValidateRange(0, 300)]
     [int] $ObserveSeconds = 0,
-    [Parameter(Mandatory)]
+    [Parameter(Mandatory, ParameterSetName = 'Evtx')]
+    [Parameter(Mandatory, ParameterSetName = 'Live')]
     [guid] $ProcessGuid,
-    [Parameter(Mandatory)]
+    [Parameter(Mandatory, ParameterSetName = 'Evtx')]
+    [Parameter(Mandatory, ParameterSetName = 'Live')]
     [ValidatePattern('^[A-Za-z0-9_-]{1,64}$')]
     [string] $CaseId
 )
 
 $ErrorActionPreference = 'Stop'
-$root = $ProcessGuid.ToString('B')
-if ($ProcessGuid -eq [guid]::Empty) { throw 'Select a nonzero process GUID.' }
+$root = $null
+if (!$ListProcesses) {
+    if (!$ProcessGuid -or $ProcessGuid -eq [guid]::Empty) { throw 'Select a nonzero process GUID.' }
+    $root = $ProcessGuid.ToString('B')
+}
 $filter = @{
     ProviderName = 'Microsoft-Windows-Sysmon'
     Id = 1, 3, 11, 13, 22
 }
+if ($ListProcesses) { $filter.Id = 1 }
 $window = $null
 if ($Live) {
     $now = [datetimeoffset]::UtcNow
@@ -63,22 +72,56 @@ try {
 }
 if ($rows.Count -gt 20000) { throw 'Export a narrower log: more than 20,000 supported events.' }
 
-$starts = @{}
-$children = @{}
-$events = [Collections.Generic.List[object]]::new()
-foreach ($row in $rows) {
+function Read-EventFields($row) {
     [xml] $xml = $row.ToXml()
     $fields = @{}
     foreach ($node in $xml.Event.EventData.Data) {
         $fields[$node.GetAttribute('Name')] = $node.InnerText
     }
-    $guid = $fields['ProcessGuid']
-    if (!$guid) { continue }
+    $fields
+}
+
+function Read-Sha256($fields) {
+    $fields['Hashes'] -split ',' | ForEach-Object {
+        if ($_ -match '^\s*SHA256=([0-9a-f]{64})\s*$') { $Matches[1].ToLowerInvariant() }
+    }
+}
+
+if ($ListProcesses) {
+    $candidates = @(foreach ($row in $rows) {
+        $fields = Read-EventFields $row
+        $guid = [guid]::Empty
+        if (![guid]::TryParse($fields['ProcessGuid'], [ref] $guid) -or $guid -eq [guid]::Empty) { continue }
+        $hash = @(Read-Sha256 $fields)
+        $image = [string] $fields['Image']
+        if ($hash.Count -ne 1 -or !$image -or [Text.Encoding]::UTF8.GetByteCount($image) -gt 1024 -or $image -match '\p{Cc}') { continue }
+        @{
+            guid = $guid.ToString('D')
+            image = $image
+            sha256 = $hash[0]
+            timestamp = $row.TimeCreated.ToUniversalTime().ToString('o')
+        }
+    })
+    $json = ConvertTo-Json -InputObject $candidates -Depth 3 -Compress
+    if ([Text.Encoding]::UTF8.GetByteCount($json) -gt 4MB) { throw 'Process list exceeds 4 MiB. Export a narrower log.' }
+    $json
+    return
+}
+
+$starts = @{}
+$children = @{}
+$events = [Collections.Generic.List[object]]::new()
+foreach ($row in $rows) {
+    $fields = Read-EventFields $row
+    $processId = [guid]::Empty
+    if (![guid]::TryParse($fields['ProcessGuid'], [ref] $processId) -or $processId -eq [guid]::Empty) { continue }
+    $guid = $processId.ToString('B')
     if ($row.Id -eq 1) {
         if ($starts.ContainsKey($guid)) { throw 'Duplicate process start GUID in capture.' }
         $starts[$guid] = $fields
-        $parent = $fields['ParentProcessGuid']
-        if ($parent) {
+        $parentId = [guid]::Empty
+        if ([guid]::TryParse($fields['ParentProcessGuid'], [ref] $parentId) -and $parentId -ne [guid]::Empty) {
+            $parent = $parentId.ToString('B')
             if (!$children.ContainsKey($parent)) { $children[$parent] = [Collections.Generic.List[string]]::new() }
             $children[$parent].Add($guid)
         }
@@ -87,9 +130,7 @@ foreach ($row in $rows) {
 }
 
 if (!$starts.ContainsKey($root)) { throw 'Process GUID was not found in a Sysmon process creation event.' }
-$sha256 = @($starts[$root]['Hashes'] -split ',' | ForEach-Object {
-    if ($_ -match '^\s*SHA256=([0-9a-f]{64})\s*$') { $Matches[1].ToLowerInvariant() }
-})
+$sha256 = @(Read-Sha256 $starts[$root])
 if ($sha256.Count -ne 1) { throw 'Selected process creation event must contain one Sysmon SHA256 value.' }
 
 $processes = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
@@ -139,4 +180,6 @@ $capture = @{
     events = $timeline
 }
 if ($window) { $capture.captureWindow = $window }
-$capture | ConvertTo-Json -Depth 5 -Compress
+$json = $capture | ConvertTo-Json -Depth 5 -Compress
+if ([Text.Encoding]::UTF8.GetByteCount($json) -gt 4MB) { throw 'Capture exceeds 4 MiB. Export a narrower log.' }
+$json
