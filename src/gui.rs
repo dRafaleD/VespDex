@@ -62,9 +62,15 @@ struct Workspace {
     process_search: String,
     message: Option<(bool, String)>,
     view: View,
-    event_kind: Option<EventKind>,
-    process_guid: Option<String>,
-    selected_event: Option<usize>,
+    timeline: Timeline,
+}
+
+#[derive(Default)]
+struct Timeline {
+    kind: Option<EventKind>,
+    process: Option<String>,
+    query: String,
+    selected: Option<usize>,
 }
 
 enum Loaded {
@@ -134,9 +140,7 @@ impl Workspace {
         self.candidates.clear();
         self.process_search.clear();
         self.view = View::Start;
-        self.event_kind = None;
-        self.process_guid = None;
-        self.selected_event = None;
+        self.timeline = Timeline::default();
         let evtx = path
             .extension()
             .and_then(|ext| ext.to_str())
@@ -176,9 +180,7 @@ impl Workspace {
                 match result {
                     Ok(Loaded::Report(report)) => {
                         self.report = Some(report);
-                        self.event_kind = None;
-                        self.process_guid = None;
-                        self.selected_event = None;
+                        self.timeline = Timeline::default();
                         self.view = View::Overview;
                     }
                     Ok(Loaded::Processes(candidates)) => {
@@ -332,22 +334,17 @@ impl eframe::App for Workspace {
                             let report = self.report.as_ref().expect("view has a report");
                             panel_heading(ui, "Olay zaman çizelgesi");
                             panel(SURFACE, 14, 12).show(ui, |ui| {
-                                timeline(
-                                    ui,
-                                    report,
-                                    &mut self.event_kind,
-                                    &mut self.process_guid,
-                                    &mut self.selected_event,
-                                );
+                                timeline(ui, report, &mut self.timeline);
                             });
                         }
                         View::Processes if self.report.is_some() => {
                             let report = self.report.as_ref().expect("view has a report");
                             panel_heading(ui, "Süreçler");
                             if let Some(guid) = processes(ui, report) {
-                                self.process_guid = Some(guid);
-                                self.event_kind = None;
-                                self.selected_event = None;
+                                self.timeline = Timeline {
+                                    process: Some(guid),
+                                    ..Timeline::default()
+                                };
                                 self.view = View::Timeline;
                             }
                         }
@@ -604,57 +601,61 @@ fn event_label(kind: EventKind) -> &'static str {
     }
 }
 
-fn timeline(
-    ui: &mut egui::Ui,
-    report: &Report,
-    kind: &mut Option<EventKind>,
-    process: &mut Option<String>,
-    selected: &mut Option<usize>,
-) {
+fn timeline(ui: &mut egui::Ui, report: &Report, timeline: &mut Timeline) {
+    let mut reset_scroll = false;
     ui.horizontal_wrapped(|ui| {
-        let previous = *kind;
+        let previous = timeline.kind;
         egui::ComboBox::from_id_salt("event-kind")
             .width(160.0)
-            .selected_text(kind.map(event_label).unwrap_or("Tüm olay türleri"))
+            .selected_text(timeline.kind.map(event_label).unwrap_or("Tüm olay türleri"))
             .show_ui(ui, |ui| {
-                ui.selectable_value(kind, None, "Tüm olay türleri");
+                ui.selectable_value(&mut timeline.kind, None, "Tüm olay türleri");
                 for event in EventKind::ALL {
-                    ui.selectable_value(kind, Some(event), event_label(event));
+                    ui.selectable_value(&mut timeline.kind, Some(event), event_label(event));
                 }
             });
-        if previous != *kind {
-            *selected = None;
+        reset_scroll |= previous != timeline.kind;
+        reset_scroll |= ui
+            .add(
+                egui::TextEdit::singleline(&mut timeline.query)
+                    .hint_text("Olay ayrıntılarında ara")
+                    .char_limit(160)
+                    .desired_width(204.0),
+            )
+            .changed();
+        if !timeline.query.is_empty() && ui.small_button("Aramayı temizle").clicked() {
+            timeline.query.clear();
+            reset_scroll = true;
         }
-        if let Some(guid) = process.as_ref() {
+        if let Some(guid) = timeline.process.as_ref() {
             ui.label(RichText::new(guid.as_str()).monospace());
             if ui.small_button("Süreç filtresini kaldır").clicked() {
-                *process = None;
-                *selected = None;
+                timeline.process = None;
+                reset_scroll = true;
             }
         }
     });
+    if reset_scroll {
+        timeline.selected = None;
+    }
+    let query = timeline.query.trim().to_lowercase();
     let visible: Vec<_> = report
         .events
         .iter()
         .enumerate()
-        .filter(|(_, event)| {
-            kind.is_none_or(|kind| kind == event.kind)
-                && process
-                    .as_ref()
-                    .is_none_or(|guid| event.process_guid.as_ref() == Some(guid))
-        })
+        .filter(|(_, event)| timeline_matches(event, timeline, &query))
         .collect();
     ui.label(
         RichText::new(format!("{} / {} olay", visible.len(), report.events.len())).color(MUTED),
     );
-    if let Some(index) = *selected
+    if let Some(index) = timeline.selected
         && let Some(event) = report.events.get(index)
     {
         ui.group(|ui| {
             ui.horizontal(|ui| {
                 ui.strong(event_label(event.kind));
                 if ui.small_button("Kapat").clicked() {
-                    *selected = None;
+                    timeline.selected = None;
                 }
             });
             ui.label(&event.timestamp);
@@ -673,25 +674,47 @@ fn timeline(
         ui.label("Bu filtreyle eşleşen olay yok.");
         return;
     }
-    egui::ScrollArea::vertical()
-        .id_salt(("timeline", kind.map(EventKind::key), process.clone()))
-        .auto_shrink([false, false])
-        .show_rows(ui, 24.0, visible.len(), |ui, rows| {
-            for (index, event) in &visible[rows] {
-                let label = format!(
-                    "{}    {}    {}",
-                    event.timestamp,
-                    event_label(event.kind),
-                    event.detail
-                );
-                let button = egui::Button::new(label)
-                    .selected(*selected == Some(*index))
-                    .truncate();
-                if ui.add_sized([ui.available_width(), 24.0], button).clicked() {
-                    *selected = Some(*index);
-                }
+    let mut scroll = egui::ScrollArea::vertical()
+        .id_salt((
+            "timeline",
+            timeline.kind.map(EventKind::key),
+            timeline.process.as_deref(),
+        ))
+        .auto_shrink([false, false]);
+    if reset_scroll {
+        scroll = scroll.vertical_scroll_offset(0.0);
+    }
+    scroll.show_rows(ui, 24.0, visible.len(), |ui, rows| {
+        for (index, event) in &visible[rows] {
+            let label = format!(
+                "{}    {}    {}",
+                event.timestamp,
+                event_label(event.kind),
+                event.detail
+            );
+            let button = egui::Button::new(label)
+                .selected(timeline.selected == Some(*index))
+                .truncate();
+            if ui.add_sized([ui.available_width(), 24.0], button).clicked() {
+                timeline.selected = Some(*index);
             }
-        });
+        }
+    });
+}
+
+fn timeline_matches(event: &crate::Event, timeline: &Timeline, query: &str) -> bool {
+    timeline.kind.is_none_or(|kind| kind == event.kind)
+        && timeline
+            .process
+            .as_ref()
+            .is_none_or(|guid| event.process_guid.as_ref() == Some(guid))
+        && (query.is_empty()
+            || event.detail.to_lowercase().contains(query)
+            || event
+                .process_guid
+                .as_ref()
+                .is_some_and(|guid| guid.contains(query))
+            || event.kind.key().contains(query))
 }
 
 fn processes(ui: &mut egui::Ui, report: &Report) -> Option<String> {
@@ -795,5 +818,28 @@ mod tests {
 
         report.processes.remove(root);
         assert_eq!(process_tree(&report), [(child, 0)]);
+    }
+
+    #[test]
+    fn combines_text_event_kind_and_process_filters() {
+        let capture = serde_json::from_str(include_str!("../examples/capture.json")).unwrap();
+        let report = analyze(capture).unwrap();
+        let dns = report
+            .events
+            .iter()
+            .find(|event| event.kind == EventKind::DnsQuery)
+            .unwrap();
+        let mut view = Timeline {
+            kind: Some(EventKind::DnsQuery),
+            process: dns.process_guid.clone(),
+            ..Timeline::default()
+        };
+        assert!(timeline_matches(dns, &view, "example.org"));
+        assert!(!timeline_matches(dns, &view, "other.example"));
+        view.kind = Some(EventKind::FileWrite);
+        assert!(!timeline_matches(dns, &view, "example.org"));
+        view.kind = None;
+        view.process = Some("11111111-1111-1111-1111-111111111111".into());
+        assert!(!timeline_matches(dns, &view, "example.org"));
     }
 }

@@ -20,8 +20,9 @@ cargo build --release --locked
 Run `vespdex --gui` and choose **DOSYA SEÇ** to open telemetry JSON or an
 exported Windows Sysmon EVTX. For EVTX, choose a process with a recorded
 SHA-256 to analyze its process tree. The
-timeline can be filtered by event type. In the process view, **Olayları göster**
-opens the timeline filtered to that process. **Raporu kaydet** exports the same
+timeline supports event-type, process and text filters. The process tree shows
+the relationships present in the recording. Use **Olayları göster** to open
+the timeline filtered to that process. **Raporu kaydet** exports the same
 JSON report used by the CLI. Open the example directly with:
 
 ```powershell
