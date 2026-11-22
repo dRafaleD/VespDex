@@ -27,6 +27,15 @@ ortamından toplar. Bir olaya ait eksik kayıtlar ekranda açıkça belirtilir.
   (`8bc76c8`) geçti. Canlı kayıtta ve EVTX'te kök SHA-256 eşleşti. İki
   raporda da bir loopback bağlantısı, işaret dosyasını oluşturan alt sürece
   ve dinleyicinin portuna bağlandı.
+- [Ayrı Windows Server 2025 paket kontrolü](https://github.com/dRafaleD/VespDex/actions/runs/45055348439)
+  (`b649e90`) geçti. Arşiv ve sekiz dosyanın SHA-256 değerleri doğrulandı.
+  CLI örneği dört olay ve iki süreç üretti. GUI `Dx12 / Cpu` ile açıldı ve
+  geçici kurulum klasörü kaldırıldı.
+- `0.3.0-rc.1` kaynak adayı `91f62dc` ile sürümlendi. Yerel Windows'ta
+  aday ZIP'inden örnek analiz, rapor kaydetme, GUI açılışı ve kaldırma
+  geçti. [Aday paket kontrolü](https://github.com/dRafaleD/VespDex/actions/runs/45056216291)
+  ve [aday Sysmon kontrolü](https://github.com/dRafaleD/VespDex/actions/runs/45056219745)
+  aynı kodu ayrı çalıştırıcılarda doğrular.
 - Yerel [üç araç uyum kontrolü](BEHAVIOR_REPORT_V1.md#interoperability-check)
   geçti. AsphDex (`a940301`) aynı dosyanın hash'ini eşleştirdi ve farklı
   hash'i reddetti. Banshee (`e68d1b0`) iki ağ göstergesini doğru olay
