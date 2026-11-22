@@ -3,7 +3,11 @@ use std::{
     fs::OpenOptions,
     io::Write,
     path::PathBuf,
-    sync::mpsc::{self, Receiver, TryRecvError},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc::{self, Receiver, TryRecvError},
+    },
 };
 
 use anyhow::Result;
@@ -82,6 +86,7 @@ enum Loaded {
 struct PendingLoad {
     path: PathBuf,
     result: Receiver<Result<Loaded>>,
+    cancelled: Arc<AtomicBool>,
 }
 
 pub(crate) fn run(path: Option<PathBuf>) -> Result<()> {
@@ -145,9 +150,9 @@ impl Workspace {
             .extension()
             .and_then(|ext| ext.to_str())
             .is_some_and(|ext| ext.eq_ignore_ascii_case("evtx"));
-        self.start_job(ctx, path, move |path| {
+        self.start_job(ctx, path, move |path, cancelled| {
             if evtx {
-                sysmon::list(path).map(Loaded::Processes)
+                sysmon::list(path, cancelled).map(Loaded::Processes)
             } else {
                 read_capture(path)
                     .and_then(analyze)
@@ -161,17 +166,19 @@ impl Workspace {
         &mut self,
         ctx: &egui::Context,
         path: PathBuf,
-        job: impl FnOnce(&std::path::Path) -> Result<Loaded> + Send + 'static,
+        job: impl FnOnce(&std::path::Path, &AtomicBool) -> Result<Loaded> + Send + 'static,
     ) {
         let (sender, receiver) = mpsc::channel();
         let ctx = ctx.clone();
+        let cancelled = Arc::new(AtomicBool::new(false));
         self.pending = Some(PendingLoad {
             path: path.clone(),
             result: receiver,
+            cancelled: Arc::clone(&cancelled),
         });
         self.message = None;
         std::thread::spawn(move || {
-            let _ = sender.send(job(&path));
+            let _ = sender.send(job(&path, &cancelled));
             ctx.request_repaint();
         });
     }
@@ -186,7 +193,11 @@ impl Workspace {
             )),
         };
         let pending = self.pending.take().expect("finished load is present");
-        self.finish_load(pending.path, result);
+        if pending.cancelled.load(Ordering::Relaxed) {
+            self.message = Some((false, "Kayıt açma iptal edildi.".into()));
+        } else {
+            self.finish_load(pending.path, result);
+        }
     }
 
     fn finish_load(&mut self, path: PathBuf, result: Result<Loaded>) {
@@ -254,6 +265,15 @@ impl Workspace {
 }
 
 impl eframe::App for Workspace {
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        if let Some(pending) = &self.pending {
+            pending.cancelled.store(true, Ordering::Relaxed);
+            let _ = pending
+                .result
+                .recv_timeout(std::time::Duration::from_millis(500));
+        }
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll();
         if self.pending.is_none() {
@@ -293,9 +313,16 @@ impl eframe::App for Workspace {
             .frame(panel(BG, 22, 5))
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    if self.pending.is_some() {
+                    if let Some(pending) = &self.pending {
                         ui.spinner();
-                        ui.label("Kayıt analiz ediliyor");
+                        if pending.cancelled.load(Ordering::Relaxed) {
+                            ui.label("İptal ediliyor");
+                        } else {
+                            ui.label("Kayıt analiz ediliyor");
+                            if ui.small_button("İptal").clicked() {
+                                pending.cancelled.store(true, Ordering::Relaxed);
+                            }
+                        }
                     } else if let Some((error, message)) = &self.message {
                         ui.colored_label(if *error { Color32::LIGHT_RED } else { ACCENT }, message);
                     } else {
@@ -439,8 +466,8 @@ impl Workspace {
                 }
             });
         if let (Some((guid, expected_hash)), Some(path)) = (selected, self.candidate_path.clone()) {
-            self.start_job(ctx, path, move |path| {
-                let report = sysmon::convert(path, &guid)?;
+            self.start_job(ctx, path, move |path, cancelled| {
+                let report = sysmon::convert(path, &guid, cancelled)?;
                 anyhow::ensure!(
                     report.sample_sha256 == expected_hash,
                     "selected process no longer matches the EVTX process list"
@@ -862,6 +889,27 @@ mod tests {
                 .as_ref()
                 .is_some_and(|(error, text)| *error && text.contains("invalid.evtx"))
         );
+    }
+
+    #[test]
+    fn a_cancelled_import_does_not_commit_a_late_result() {
+        let capture = serde_json::from_str(include_str!("../examples/capture.json")).unwrap();
+        let (sender, receiver) = mpsc::channel();
+        sender
+            .send(Ok(Loaded::Report(Box::new(analyze(capture).unwrap()))))
+            .unwrap();
+        let mut workspace = Workspace {
+            pending: Some(PendingLoad {
+                path: "cancelled.json".into(),
+                result: receiver,
+                cancelled: Arc::new(AtomicBool::new(true)),
+            }),
+            ..Workspace::default()
+        };
+        workspace.poll();
+        assert!(workspace.report.is_none());
+        assert!(workspace.path.is_none());
+        assert!(workspace.pending.is_none());
     }
 
     #[test]

@@ -4,6 +4,7 @@ use std::{
     os::windows::process::CommandExt,
     path::{Path, PathBuf},
     process::{Child, Command, ExitStatus, Output, Stdio},
+    sync::atomic::{AtomicBool, Ordering},
     thread,
     time::{Duration, Instant},
 };
@@ -35,8 +36,8 @@ pub(super) struct Candidate {
     pub timestamp: String,
 }
 
-pub(super) fn list(path: &Path) -> Result<Vec<Candidate>> {
-    let candidates: Vec<Candidate> = read(path, None)?;
+pub(super) fn list(path: &Path, cancelled: &AtomicBool) -> Result<Vec<Candidate>> {
+    let candidates: Vec<Candidate> = read(path, None, cancelled)?;
     ensure!(
         !candidates.is_empty(),
         "no process creation events with a SHA-256 value were found"
@@ -44,11 +45,11 @@ pub(super) fn list(path: &Path) -> Result<Vec<Candidate>> {
     Ok(candidates)
 }
 
-pub(super) fn convert(path: &Path, guid: &str) -> Result<Report> {
-    analyze(read(path, Some(guid))?)
+pub(super) fn convert(path: &Path, guid: &str, cancelled: &AtomicBool) -> Result<Report> {
+    analyze(read(path, Some(guid), cancelled)?)
 }
 
-fn read<T: DeserializeOwned>(path: &Path, guid: Option<&str>) -> Result<T> {
+fn read<T: DeserializeOwned>(path: &Path, guid: Option<&str>, cancelled: &AtomicBool) -> Result<T> {
     // The command is fixed source. Paths and process IDs are passed as data.
     let output = bounded_output(
         powershell_command(RUN_CONVERTER)?
@@ -56,6 +57,7 @@ fn read<T: DeserializeOwned>(path: &Path, guid: Option<&str>) -> Result<T> {
             .env("VESPDEX_PROCESS_GUID", guid.unwrap_or_default()),
         READER_TIMEOUT,
         MAX_BYTES + 2,
+        cancelled,
     )?;
     if !output.status.success() {
         let detail = String::from_utf8_lossy(&output.stderr);
@@ -82,7 +84,16 @@ fn read_prefix(stream: impl Read, limit: u64) -> std::io::Result<Vec<u8>> {
     Ok(bytes)
 }
 
-fn bounded_output(command: &mut Command, timeout: Duration, stdout_limit: u64) -> Result<Output> {
+fn bounded_output(
+    command: &mut Command,
+    timeout: Duration,
+    stdout_limit: u64,
+    cancelled: &AtomicBool,
+) -> Result<Output> {
+    ensure!(
+        !cancelled.load(Ordering::Relaxed),
+        "Windows EVTX reader was cancelled"
+    );
     let mut reader = command
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -94,7 +105,7 @@ fn bounded_output(command: &mut Command, timeout: Duration, stdout_limit: u64) -
     let stderr = thread::spawn(move || read_prefix(stderr, STDERR_LIMIT));
 
     // Drain both streams while waiting so neither pipe can stall the child.
-    let status = wait_for_exit(&mut reader, timeout)?;
+    let status = wait_for_exit(&mut reader, timeout, cancelled)?;
     let stdout = stdout
         .join()
         .map_err(|_| anyhow::anyhow!("EVTX output reader stopped"))??;
@@ -116,9 +127,16 @@ fn bounded_output(command: &mut Command, timeout: Duration, stdout_limit: u64) -
     })
 }
 
-fn wait_for_exit(reader: &mut Child, timeout: Duration) -> Result<ExitStatus> {
+fn wait_for_exit(
+    reader: &mut Child,
+    timeout: Duration,
+    cancelled: &AtomicBool,
+) -> Result<ExitStatus> {
     let start = Instant::now();
     let error = loop {
+        if cancelled.load(Ordering::Relaxed) {
+            break anyhow::anyhow!("Windows EVTX reader was cancelled");
+        }
         match reader.try_wait() {
             Ok(Some(status)) => return Ok(status),
             Ok(None) if start.elapsed() < timeout => thread::sleep(Duration::from_millis(25)),
@@ -147,7 +165,9 @@ mod tests {
     #[test]
     fn launches_the_embedded_reader_with_a_windows_path() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/capture.json");
-        let error = list(&path).err().expect("capture JSON is not an EVTX");
+        let error = list(&path, &AtomicBool::new(false))
+            .err()
+            .expect("capture JSON is not an EVTX");
         assert!(
             error
                 .to_string()
@@ -162,6 +182,7 @@ mod tests {
             &mut powershell_command("Start-Sleep -Seconds 20").unwrap(),
             Duration::from_millis(500),
             1024,
+            &AtomicBool::new(false),
         )
         .unwrap_err();
         assert!(error.to_string().contains("time limit"), "{error:#}");
@@ -180,9 +201,26 @@ mod tests {
                 &mut powershell_command(script).unwrap(),
                 Duration::from_secs(10),
                 1024,
+                &AtomicBool::new(false),
             )
             .unwrap_err();
             assert!(error.to_string().contains(message), "{error:#}");
         }
+    }
+
+    #[test]
+    fn cancellation_reaps_a_running_reader() {
+        let mut process = powershell_command("Start-Sleep -Seconds 20")
+            .unwrap()
+            .spawn()
+            .unwrap();
+        let error = wait_for_exit(
+            &mut process,
+            Duration::from_secs(20),
+            &AtomicBool::new(true),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("cancelled"), "{error:#}");
+        assert!(process.try_wait().unwrap().is_some());
     }
 }

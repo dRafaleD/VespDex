@@ -29,6 +29,9 @@ JSON report used by the CLI. Open the example directly with:
 cargo run --locked -- --gui examples/capture.json
 ```
 
+An invalid or cancelled import leaves the last successful report and its
+filters in place. Use **İptal** in the status bar to stop an EVTX import.
+
 For live Sysmon capture, use the collector below.
 
 ## Terminal workspace
