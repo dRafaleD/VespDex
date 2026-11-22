@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     fs::OpenOptions,
     io::Write,
     path::PathBuf,
@@ -697,41 +698,102 @@ fn processes(ui: &mut egui::Ui, report: &Report) -> Option<String> {
     let mut filter = None;
     if report.processes.is_empty() {
         ui.label("Bu kayıtta süreç kimliği bulunamadı.");
+        return None;
     }
     egui::ScrollArea::vertical()
         .id_salt("process-list")
         .show(ui, |ui| {
-            for (guid, process) in &report.processes {
+            for (guid, depth) in process_tree(report) {
+                let process = &report.processes[guid];
                 panel(SURFACE, 14, 10).show(ui, |ui| {
                     ui.set_min_width(ui.available_width());
-                    ui.horizontal(|ui| {
-                        ui.strong(
-                            process
-                                .image
-                                .as_deref()
-                                .unwrap_or("Yürütülebilir dosya bilinmiyor"),
-                        );
-                        if ui.small_button("Olayları göster").clicked() {
-                            filter = Some(guid.clone());
-                        }
-                    });
-                    ui.label(RichText::new(guid).monospace().color(MUTED));
-                    if let Some(parent) = &process.parent_process_guid {
-                        ui.label(
-                            RichText::new(format!("Üst süreç  {parent}"))
-                                .monospace()
-                                .color(MUTED),
-                        );
-                    }
-                    ui.horizontal_wrapped(|ui| {
-                        for event in EventKind::ALL {
-                            if let Some(count) = process.counts.get(event.key()) {
-                                ui.label(format!("{} {count}", event_label(event)));
+                    ui.horizontal_top(|ui| {
+                        ui.add_space(12.0 * depth.min(6) as f32);
+                        ui.vertical(|ui| {
+                            ui.horizontal_wrapped(|ui| {
+                                if depth > 0 {
+                                    ui.colored_label(ACCENT, "└");
+                                }
+                                ui.strong(
+                                    process
+                                        .image
+                                        .as_deref()
+                                        .unwrap_or("Yürütülebilir dosya bilinmiyor"),
+                                );
+                                if ui.small_button("Olayları göster").clicked() {
+                                    filter = Some(guid.to_owned());
+                                }
+                            });
+                            ui.label(RichText::new(guid).monospace().color(MUTED));
+                            if let Some(parent) = &process.parent_process_guid {
+                                let title = if report.processes.contains_key(parent) {
+                                    "Üst süreç"
+                                } else {
+                                    "Üst süreç kayıtta yok"
+                                };
+                                ui.label(
+                                    RichText::new(format!("{title}  {parent}"))
+                                        .monospace()
+                                        .color(MUTED),
+                                );
                             }
-                        }
+                            ui.horizontal_wrapped(|ui| {
+                                for event in EventKind::ALL {
+                                    if let Some(count) = process.counts.get(event.key()) {
+                                        ui.label(format!("{} {count}", event_label(event)));
+                                    }
+                                }
+                            });
+                            if depth > 6 {
+                                ui.label(
+                                    RichText::new(format!("Ağaç derinliği {depth}")).color(MUTED),
+                                );
+                            }
+                        });
                     });
                 });
             }
         });
     filter
+}
+
+fn process_tree(report: &Report) -> Vec<(&str, usize)> {
+    let mut roots = Vec::new();
+    let mut children = BTreeMap::<&str, Vec<&str>>::new();
+    for (guid, process) in &report.processes {
+        match process.parent_process_guid.as_deref() {
+            Some(parent) if report.processes.contains_key(parent) => {
+                children.entry(parent).or_default().push(guid);
+            }
+            _ => roots.push(guid.as_str()),
+        }
+    }
+
+    let mut rows = Vec::with_capacity(report.processes.len());
+    let mut pending: Vec<_> = roots.into_iter().rev().map(|guid| (guid, 0)).collect();
+    // The analyzer rejects ancestry cycles. An explicit stack bounds call depth.
+    while let Some((guid, depth)) = pending.pop() {
+        rows.push((guid, depth));
+        if let Some(branch) = children.get(guid) {
+            pending.extend(branch.iter().rev().map(|child| (*child, depth + 1)));
+        }
+    }
+    rows
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shows_parents_before_children_and_keeps_external_parents_as_roots() {
+        let capture = serde_json::from_str(include_str!("../examples/capture.json")).unwrap();
+        let mut report = analyze(capture).unwrap();
+        let root = "11111111-1111-1111-1111-111111111111";
+        let child = "22222222-2222-2222-2222-222222222222";
+        assert_eq!(process_tree(&report), [(root, 0), (child, 1)]);
+
+        report.processes.remove(root);
+        assert_eq!(process_tree(&report), [(child, 0)]);
+    }
 }
