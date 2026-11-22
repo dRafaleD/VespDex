@@ -108,6 +108,44 @@ fn rejects_events_outside_the_recorded_window() {
 }
 
 #[test]
+fn coverage_distinguishes_unseen_events_from_unknown_collection_completeness() {
+    let mut input = capture();
+    input["events"] = json!([
+        {
+            "timestamp": "2026-11-21T10:00:00Z", "kind": "process-start", "detail": "demo.exe",
+            "processGuid": "11111111-1111-1111-1111-111111111111",
+            "parentProcessGuid": "22222222-2222-2222-2222-222222222222"
+        },
+        {
+            "timestamp": "2026-11-21T10:00:01Z", "kind": "file-write", "detail": "marker.txt",
+            "processGuid": "33333333-3333-3333-3333-333333333333"
+        }
+    ]);
+    let output = run(&serde_json::to_vec(&input).unwrap());
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        report["counts"],
+        json!({"process-start": 1, "file-write": 1})
+    );
+    assert_eq!(
+        report["coverage"],
+        json!({
+            "completeness": "unknown",
+            "observedKindCounts": {
+                "process-start": 1, "file-write": 1, "registry-write": 0, "network-connection": 0, "dns-query": 0
+            },
+            "processesWithoutStart": 1,
+            "processesWithUnseenParent": 1
+        })
+    );
+}
+
+#[test]
 fn rejects_cycles_in_the_process_tree() {
     let mut input = capture();
     input["events"][1]["parentProcessGuid"] = json!("22222222-2222-2222-2222-222222222222");

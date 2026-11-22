@@ -114,7 +114,17 @@ struct Report {
     counts: BTreeMap<&'static str, usize>,
     processes: BTreeMap<String, ProcessSummary>,
     unattributed_event_count: usize,
+    coverage: Coverage,
     events: Vec<Event>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Coverage {
+    completeness: &'static str,
+    observed_kind_counts: BTreeMap<&'static str, usize>,
+    processes_without_start: usize,
+    processes_with_unseen_parent: usize,
 }
 
 #[derive(Default, Serialize)]
@@ -276,6 +286,32 @@ fn analyze(capture: Capture) -> Result<Report> {
     }
     validate_process_relationships(&processes)?;
     timeline.sort_by_key(|(timestamp, _)| *timestamp);
+    let coverage = Coverage {
+        // The report knows which events it saw, but not what the collector missed.
+        completeness: "unknown",
+        observed_kind_counts: EventKind::ALL
+            .into_iter()
+            .map(|kind| {
+                (
+                    kind.key(),
+                    counts.get(kind.key()).copied().unwrap_or_default(),
+                )
+            })
+            .collect(),
+        processes_without_start: processes
+            .values()
+            .filter(|process| process.image.is_none())
+            .count(),
+        processes_with_unseen_parent: processes
+            .values()
+            .filter(|process| {
+                process
+                    .parent_process_guid
+                    .as_ref()
+                    .is_some_and(|parent| !processes.contains_key(parent))
+            })
+            .count(),
+    };
 
     Ok(Report {
         kind: "asphdex-behavior-report",
@@ -289,6 +325,7 @@ fn analyze(capture: Capture) -> Result<Report> {
         counts,
         processes,
         unattributed_event_count,
+        coverage,
         events: timeline.into_iter().map(|(_, event)| event).collect(),
     })
 }

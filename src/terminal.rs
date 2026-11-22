@@ -187,11 +187,26 @@ impl Workspace {
                         self.text("Süreci bilinmeyen olay", "Unattributed events"),
                         report.unattributed_event_count
                     ),
+                    format!(
+                        "    {}: {} / {}",
+                        self.text(
+                            "Başlangıcı görünmeyen / üst süreci görünmeyen",
+                            "Missing start / missing parent"
+                        ),
+                        report.coverage.processes_without_start,
+                        report.coverage.processes_with_unseen_parent,
+                    ),
                     String::new(),
+                    self.text(
+                        "    Kayıt kapsamı · eksiksizlik bilinmiyor",
+                        "    Capture coverage · completeness unknown",
+                    )
+                    .into(),
                 ];
                 lines.extend(
                     report
-                        .counts
+                        .coverage
+                        .observed_kind_counts
                         .iter()
                         .map(|(kind, count)| format!("    {kind:<22} {count}")),
                 );

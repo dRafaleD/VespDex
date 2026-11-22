@@ -417,7 +417,12 @@ impl eframe::App for Workspace {
                     .show(ui, |ui| match self.view {
                         View::Start => self.start(ui, ctx),
                         View::ChooseProcess => self.choose_process(ui, ctx),
-                        View::Overview if self.report.is_some() => self.overview(ui),
+                        View::Overview if self.report.is_some() => {
+                            egui::ScrollArea::vertical()
+                                .id_salt("report-overview")
+                                .auto_shrink([false, false])
+                                .show(ui, |ui| self.overview(ui));
+                        }
                         View::Timeline if self.report.is_some() => {
                             let report = self.report.as_ref().expect("view has a report");
                             panel_heading(ui, "Olay zaman çizelgesi");
@@ -595,19 +600,20 @@ impl Workspace {
             ui.add_space(12.0);
             panel(SURFACE, 16, 14).show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
-                ui.strong("Olay türleri");
+                ui.strong("Kayıt kapsamı");
+                ui.add_space(6.0);
+                ui.label(RichText::new("Toplamanın eksiksiz olup olmadığı bilinmiyor. Sıfır, bu kayıtta ilgili olayın görünmediğini belirtir.").color(MUTED));
                 ui.add_space(6.0);
                 for kind in EventKind::ALL {
-                    if let Some(count) = report.counts.get(kind.key()) {
-                        ui.horizontal(|ui| {
-                            ui.label(event_label(kind));
-                            ui.label(RichText::new(count.to_string()).monospace().color(ACCENT));
-                        });
-                    }
+                    let count = report.coverage.observed_kind_counts[kind.key()];
+                    ui.horizontal(|ui| {
+                        ui.label(event_label(kind));
+                        ui.label(RichText::new(count.to_string()).monospace().color(if count > 0 { ACCENT } else { MUTED }));
+                    });
                 }
-                if report.counts.is_empty() {
-                    ui.label(RichText::new("Kayıt olay içermiyor.").color(MUTED));
-                }
+                ui.add_space(6.0);
+                ui.label(format!("Başlangıç olayı olmayan süreç: {}", report.coverage.processes_without_start));
+                ui.label(format!("Üst süreci kayıtta olmayan süreç: {}", report.coverage.processes_with_unseen_parent));
             });
         }
         if export {

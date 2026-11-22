@@ -15,6 +15,7 @@ reject unsupported versions. The input capture is a distinct v1 JSON object.
 | `captureWindow` | Optional inclusive start and end as RFC 3339 instants |
 | `events` | At most 2,000 observations in ascending instant order |
 | `counts`, `processes`, `unattributedEventCount` | Summaries derived from the observations |
+| `coverage` | Observed counts for every supported kind, processes without start events and processes whose recorded parent is absent |
 
 Each event has `timestamp` (RFC 3339), `kind` and nonblank, single-line
 `detail` (at most 1,024 UTF-8 bytes). Event types are `process-start`,
@@ -30,6 +31,8 @@ to the VespDex `events` array.
 
 A hash match establishes a shared file identifier. Sysmon configuration,
 retention and the observation window determine which events are visible.
+`coverage.completeness` is `unknown`. A zero in `observedKindCounts` means
+that kind was absent from this recording. Earlier reports may omit `coverage`.
 The report provides no malware verdict or proof of full capture.
 
 ## Interoperability check
