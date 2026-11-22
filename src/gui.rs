@@ -8,7 +8,7 @@ use std::{
 use anyhow::Result;
 use eframe::egui::{self, Color32, RichText, Stroke, Vec2};
 
-use crate::{EventKind, Report, analyze, encoded_report, read_capture, terminal::portrait};
+use crate::{EventKind, Report, analyze, encoded_report, read_capture};
 
 // AsphDex's green Dark palette (css/style.css).
 const BG: Color32 = Color32::from_rgb(5, 8, 6);
@@ -49,6 +49,7 @@ impl View {
 
 #[derive(Default)]
 struct Workspace {
+    mask: Option<egui::TextureHandle>,
     path: Option<PathBuf>,
     report: Option<Report>,
     pending: Option<Receiver<Result<Report>>>,
@@ -60,10 +61,12 @@ struct Workspace {
 }
 
 pub(crate) fn run(path: Option<PathBuf>) -> Result<()> {
+    let mask = eframe::icon_data::from_png_bytes(include_bytes!("../assets/asphdex-mask.png"))?;
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1220.0, 820.0])
-            .with_min_inner_size([760.0, 520.0]),
+            .with_min_inner_size([760.0, 520.0])
+            .with_icon(mask.clone()),
         ..Default::default()
     };
     eframe::run_native(
@@ -91,7 +94,18 @@ pub(crate) fn run(path: Option<PathBuf>) -> Result<()> {
             visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, LINE_HOT);
             visuals.widgets.active.bg_stroke = Stroke::new(1.0_f32, ACCENT);
             cc.egui_ctx.set_visuals(visuals);
-            let mut workspace = Workspace::default();
+            let texture = cc.egui_ctx.load_texture(
+                "asphdex-mask",
+                egui::ColorImage::from_rgba_unmultiplied(
+                    [mask.width as usize, mask.height as usize],
+                    &mask.rgba,
+                ),
+                egui::TextureOptions::LINEAR,
+            );
+            let mut workspace = Workspace {
+                mask: Some(texture),
+                ..Workspace::default()
+            };
             if let Some(path) = path {
                 workspace.load(path, &cc.egui_ctx);
             }
@@ -190,7 +204,7 @@ impl eframe::App for Workspace {
             .frame(panel(BG, 22, 14))
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    draw_mask(ui, 0.3);
+                    self.show_mask(ui, 30.0);
                     ui.label(egui::RichText::new("Vesp").size(22.0).strong());
                     ui.add_space(-8.0);
                     ui.label(egui::RichText::new("Dex").size(22.0).strong().color(ACCENT));
@@ -299,6 +313,12 @@ impl eframe::App for Workspace {
 }
 
 impl Workspace {
+    fn show_mask(&self, ui: &mut egui::Ui, size: f32) {
+        if let Some(mask) = &self.mask {
+            ui.image((mask.id(), Vec2::splat(size)));
+        }
+    }
+
     fn start(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.vertical_centered(|ui| {
             ui.set_max_width(780.0);
@@ -307,7 +327,7 @@ impl Workspace {
             panel(SURFACE, 22, 22).show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
                 ui.vertical_centered(|ui| {
-                    draw_mask(ui, 1.95);
+                    self.show_mask(ui, 160.0);
                     ui.add_space(18.0);
                     ui.heading("Telemetri kaydı yükle");
                     ui.label(
@@ -600,48 +620,4 @@ fn processes(ui: &mut egui::Ui, report: &Report) -> Option<String> {
             }
         });
     filter
-}
-
-fn draw_mask(ui: &mut egui::Ui, unit: f32) {
-    let lines = portrait::mask(24);
-    let width = lines
-        .iter()
-        .map(|line| line.chars().count())
-        .max()
-        .unwrap_or(0);
-
-    let (rect, painter) = ui.allocate_painter(
-        Vec2::new(width as f32 * 2.0 * unit, lines.len() as f32 * 4.0 * unit),
-        egui::Sense::hover(),
-    );
-    let dots = [
-        (0, 0),
-        (0, 1),
-        (0, 2),
-        (1, 0),
-        (1, 1),
-        (1, 2),
-        (0, 3),
-        (1, 3),
-    ];
-    for (row, line) in lines.iter().enumerate() {
-        for (column, character) in line.chars().enumerate() {
-            let Some(value) = u32::from(character)
-                .checked_sub(0x2800)
-                .filter(|value| *value <= 0xff)
-            else {
-                continue;
-            };
-            for (bit, (dx, dy)) in dots.iter().copied().enumerate() {
-                if value & (1 << bit) != 0 {
-                    let pos = rect.rect.min
-                        + Vec2::new(
-                            (column * 2 + dx) as f32 * unit,
-                            (row * 4 + dy) as f32 * unit,
-                        );
-                    painter.circle(pos, unit * 0.38, ACCENT, Stroke::NONE);
-                }
-            }
-        }
-    }
 }

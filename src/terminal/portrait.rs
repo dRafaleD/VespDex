@@ -110,7 +110,7 @@ const MASK_24: &[&str] = &[
     "                 ⠒⠒⠐⠒⠂                ",
 ];
 
-pub(crate) fn mask(rows: usize) -> &'static [&'static str] {
+pub(super) fn mask(rows: usize) -> &'static [&'static str] {
     match rows {
         24.. => MASK_24,
         20.. => MASK_20,

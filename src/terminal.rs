@@ -22,7 +22,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use crate::{EventKind, Report, analyze, encoded_report, normalize_guid, read_capture};
 
 mod boot;
-pub(crate) mod portrait;
+mod portrait;
 const MAX_INPUT_CHARS: usize = 4096;
 
 struct Screen;
