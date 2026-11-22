@@ -39,8 +39,13 @@ ortamından toplar. Bir olaya ait eksik kayıtlar ekranda açıkça belirtilir.
 - Yerel [üç araç uyum kontrolü](BEHAVIOR_REPORT_V1.md#interoperability-check)
   geçti. AsphDex (`a940301`) aynı dosyanın hash'ini eşleştirdi ve farklı
   hash'i reddetti. Banshee (`e68d1b0`) iki ağ göstergesini doğru olay
-  sıralarıyla çıkardı. Entegrasyon commit'leri yerel depolarda, GUI dosya
-  seçici akışı ve bu entegrasyonların yayını ayrı doğrulanacak.
+  sıralarıyla çıkardı. Entegrasyon commit'leri yerel depolarda.
+- AsphDex masaüstü dosya girişi, Windows'ta aday VespDex'in gerçekten
+  ürettiği raporla izole Electron penceresinde doğrulandı
+  (AsphDex `bacab31`, VespDex `91f62dc`). Eşleşen SHA-256 kabul edildi.
+  Farklı SHA-256 ve bozuk JSON reddedildi. 680 piksel genişlikte içe
+  aktarma düğmesi klavye odağını aldı. Başka bir dosya analiz edildiğinde
+  eski davranış özeti temizlendi. Entegrasyon paketi yayımlanmadı.
 
 Gerçek Sysmon kabul kontrolünü, SHA-256, süreç/dosya oluşturma ve loopback ağ kayıtları
 etkin bir Windows analiz ortamında çalıştır:
