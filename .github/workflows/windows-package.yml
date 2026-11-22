@@ -1,0 +1,47 @@
+name: Windows package
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: cargo +stable build --release --locked
+      - shell: pwsh
+        run: ./scripts/package-windows.ps1 -Binary ./target/release/vespdex.exe
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: windows-x64-portable
+          path: target/dist/VespDex-*-windows-x64/*
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+  clean-check:
+    needs: package
+    runs-on: windows-2025
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/verify-windows-package.ps1
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: windows-x64-portable
+          path: downloaded
+      - name: Verify extracted package in a separate runner
+        shell: pwsh
+        run: |
+          $zip = @(Get-ChildItem -LiteralPath downloaded -Recurse -Filter 'VespDex-*-windows-x64.zip')
+          if ($zip.Count -ne 1) { throw 'Expected one Windows release ZIP.' }
+          ./scripts/verify-windows-package.ps1 -Archive $zip[0].FullName -CheckGui
