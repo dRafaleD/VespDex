@@ -23,6 +23,10 @@ ortamından toplar. Bir olaya ait eksik kayıtlar ekranda açıkça belirtilir.
   (`276b790`) geçti. Gerçek canlı kayıt ve dışa aktarılmış EVTX için kök
   SHA-256, bir alt süreç ve ona ait dosya olayı doğrulandı. Canlı raporda
   gözlem aralığı vardı. Bu senaryo ağ olaylarını ölçmedi.
+- Genişletilmiş [Sysmon kabul çalışması](https://github.com/dRafaleD/VespDex/actions/runs/45055070283)
+  (`8bc76c8`) geçti. Canlı kayıtta ve EVTX'te kök SHA-256 eşleşti. İki
+  raporda da bir loopback bağlantısı, işaret dosyasını oluşturan alt sürece
+  ve dinleyicinin portuna bağlandı.
 - Yerel [üç araç uyum kontrolü](BEHAVIOR_REPORT_V1.md#interoperability-check)
   geçti. AsphDex (`a940301`) aynı dosyanın hash'ini eşleştirdi ve farklı
   hash'i reddetti. Banshee (`e68d1b0`) iki ağ göstergesini doğru olay
