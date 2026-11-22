@@ -68,14 +68,20 @@ try {
         $start.WorkingDirectory = $parent
         $start.UseShellExecute = $false
         $start.CreateNoWindow = $true
+        $start.RedirectStandardError = $true
         $start.ArgumentList.Add('--gui')
         $start.ArgumentList.Add($demo)
         $window = [Diagnostics.Process]::Start($start)
+        $diagnostics = $window.StandardError.ReadToEndAsync()
         try {
             $deadline = [DateTime]::UtcNow.AddSeconds(15)
             do {
                 $window.Refresh()
-                if ($window.HasExited) { throw "Packaged GUI exited early ($($window.ExitCode))." }
+                if ($window.HasExited) {
+                    $detail = $diagnostics.GetAwaiter().GetResult().Trim()
+                    if ($detail.Length -gt 1600) { $detail = $detail.Substring(0, 1600) }
+                    throw "Packaged GUI exited early ($($window.ExitCode)). $detail"
+                }
                 if ($window.MainWindowTitle -eq 'VespDex') { break }
                 Start-Sleep -Milliseconds 200
             } while ([DateTime]::UtcNow -lt $deadline)
