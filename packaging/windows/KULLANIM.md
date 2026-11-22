@@ -3,6 +3,7 @@
 ZIP dosyasını yazma iznin olan bir klasöre çıkar. Masaüstü arayüzü için
 **Start-VespDex.cmd** dosyasını aç. PowerShell'de aynı klasörden
 `./vespdex.exe --gui` ile de açabilirsin. Rust kurulumu gerekmez.
+Masaüstü için Direct3D 12 destekli donanım veya Windows yazılım bağdaştırıcısı gerekir.
 
 DOSYA SEÇ ile `examples/capture.json` dosyasını aç. Genel Bakış ekranında
 4 olay ve 2 süreç görünür. Zaman çizelgesinde DNS sorgusunu seçebilir,

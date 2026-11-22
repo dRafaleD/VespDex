@@ -3,6 +3,7 @@
 Extract the ZIP to a folder you can write to. Open **Start-VespDex.cmd**,
 or run `./vespdex.exe --gui` in PowerShell from that folder. Rust is not
 required.
+The desktop requires a Direct3D 12 hardware or Windows software adapter.
 
 Use **DOSYA SEÇ** (Choose file) to open `examples/capture.json`. The overview
 shows four events and two processes. Use the timeline to filter DNS activity,

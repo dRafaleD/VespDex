@@ -13,5 +13,6 @@ time = { version = "0.3", features = ["parsing"] }
 unicode-width = "0.2"
 
 [target.'cfg(windows)'.dependencies]
-eframe = { version = "0.31.1", default-features = false, features = ["default_fonts", "glow"] }
+eframe = { version = "0.31.1", default-features = false, features = ["default_fonts", "wgpu"] }
 rfd = { version = "0.15.4", default-features = false }
+wgpu = { version = "24.0.0", default-features = false, features = ["dx12"] }

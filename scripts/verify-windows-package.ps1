@@ -32,6 +32,7 @@ try {
 
 $parent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd([IO.Path]::DirectorySeparatorChar)
 $install = Join-Path $parent "VespDex package check $([guid]::NewGuid().ToString('N'))"
+$guiRenderer = $null
 [IO.Directory]::CreateDirectory($install) | Out-Null
 try {
     [IO.Compression.ZipFile]::ExtractToDirectory($zip.FullName, $install)
@@ -95,6 +96,10 @@ try {
             }
             $window.Dispose()
         }
+        $diagnosticText = $diagnostics.GetAwaiter().GetResult()
+        $rendererLine = $diagnosticText -split '\r?\n' | Where-Object { $_ -match '^VespDex desktop renderer: Dx12 / ' } | Select-Object -First 1
+        if (!$rendererLine) { throw 'Desktop renderer did not report a Direct3D 12 adapter.' }
+        $guiRenderer = $rendererLine -replace '^VespDex desktop renderer: ', ''
     }
 } finally {
     $resolved = (Resolve-Path -LiteralPath $install -ErrorAction SilentlyContinue).Path
@@ -111,5 +116,6 @@ if (Test-Path -LiteralPath $install) { throw 'The package directory could not be
     demo_events = $report.events.Count
     demo_processes = $report.processes.Count
     gui_window_verified = [bool] $CheckGui
+    gui_renderer = $guiRenderer
     removed = $true
 } | ConvertTo-Json

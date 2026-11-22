@@ -17,6 +17,9 @@ cargo build --release --locked
 
 ## Windows desktop workspace
 
+The desktop uses Direct3D 12. It prefers hardware rendering and can use
+the Windows software adapter when that adapter is available.
+
 Run `vespdex --gui` and choose **DOSYA SEÇ** to open telemetry JSON or an
 exported Windows Sysmon EVTX. For EVTX, choose a process with a recorded
 SHA-256 to analyze its process tree. The

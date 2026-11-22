@@ -91,17 +91,53 @@ struct PendingLoad {
 
 pub(crate) fn run(path: Option<PathBuf>) -> Result<()> {
     let mask = eframe::icon_data::from_png_bytes(include_bytes!("../assets/asphdex-mask.png"))?;
+    let mut setup = eframe::egui_wgpu::WgpuSetupCreateNew::default();
+    setup.instance_descriptor.backends = wgpu::Backends::DX12;
+    setup
+        .instance_descriptor
+        .backend_options
+        .dx12
+        .shader_compiler = wgpu::Dx12Compiler::Fxc;
+    setup.native_adapter_selector = Some(Arc::new(|adapters, surface| {
+        let adapter = adapters
+            .iter()
+            .filter(|adapter| surface.is_none_or(|surface| adapter.is_surface_supported(surface)))
+            .min_by_key(|adapter| match adapter.get_info().device_type {
+                wgpu::DeviceType::DiscreteGpu => 0,
+                wgpu::DeviceType::IntegratedGpu => 1,
+                wgpu::DeviceType::VirtualGpu => 2,
+                wgpu::DeviceType::Cpu => 4,
+                _ => 3,
+            })
+            .ok_or_else(|| {
+                "No Direct3D 12 hardware or software adapter supports the VespDex window."
+                    .to_owned()
+            })?;
+        Ok(adapter.clone())
+    }));
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1220.0, 820.0])
             .with_min_inner_size([760.0, 520.0])
             .with_icon(mask.clone()),
+        renderer: eframe::Renderer::Wgpu,
+        wgpu_options: eframe::egui_wgpu::WgpuConfiguration {
+            wgpu_setup: setup.into(),
+            ..Default::default()
+        },
         ..Default::default()
     };
     eframe::run_native(
         "VespDex",
         options,
         Box::new(move |cc| {
+            if let Some(render) = &cc.wgpu_render_state {
+                let adapter = render.adapter.get_info();
+                eprintln!(
+                    "VespDex desktop renderer: {:?} / {:?}",
+                    adapter.backend, adapter.device_type
+                );
+            }
             let mut visuals = egui::Visuals::dark();
             visuals.panel_fill = BG;
             visuals.window_fill = SURFACE;
@@ -265,7 +301,7 @@ impl Workspace {
 }
 
 impl eframe::App for Workspace {
-    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+    fn on_exit(&mut self) {
         if let Some(pending) = &self.pending {
             pending.cancelled.store(true, Ordering::Relaxed);
             let _ = pending
