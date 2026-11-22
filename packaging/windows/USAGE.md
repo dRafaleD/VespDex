@@ -10,6 +10,9 @@ shows four events and two processes. Use the timeline to filter DNS activity,
 the process view to isolate a process tree, and **RAPORU KAYDET** (Save report)
 to export JSON. The CLI also accepts `./vespdex.exe ./examples/capture.json`.
 
+Keyboard shortcuts: **Ctrl+O** opens a capture, **Ctrl+F** focuses timeline
+search, **Ctrl+S** saves a report and **Esc** cancels an active import.
+
 Sysmon must be configured in the Windows environment where telemetry is
 recorded. VespDex reads records and does not launch the analyzed program.
 

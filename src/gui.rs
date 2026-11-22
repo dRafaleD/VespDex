@@ -74,6 +74,7 @@ struct Timeline {
     process: Option<String>,
     query: String,
     selected: Option<usize>,
+    focus_search: bool,
 }
 
 enum Loaded {
@@ -179,6 +180,37 @@ pub(crate) fn run(path: Option<PathBuf>) -> Result<()> {
 }
 
 impl Workspace {
+    fn keyboard_actions(&mut self, ctx: &egui::Context) {
+        if let Some(pending) = &self.pending
+            && ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+        {
+            pending.cancelled.store(true, Ordering::Relaxed);
+        }
+        if self.pending.is_none()
+            && ctx.input_mut(|input| input.consume_key(egui::Modifiers::CTRL, egui::Key::O))
+        {
+            self.pick_capture(ctx);
+        }
+        if self.report.is_some() {
+            if ctx.input_mut(|input| input.consume_key(egui::Modifiers::CTRL, egui::Key::S)) {
+                self.export();
+            }
+            if ctx.input_mut(|input| input.consume_key(egui::Modifiers::CTRL, egui::Key::F)) {
+                self.view = View::Timeline;
+                self.timeline.focus_search = true;
+            }
+        }
+    }
+
+    fn pick_capture(&mut self, ctx: &egui::Context) {
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("Telemetri kayıtları", &["json", "evtx"])
+            .pick_file()
+        {
+            self.load(path, ctx);
+        }
+    }
+
     fn load(&mut self, path: PathBuf, ctx: &egui::Context) {
         let evtx = path
             .extension()
@@ -299,6 +331,7 @@ impl eframe::App for Workspace {
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll();
+        self.keyboard_actions(ctx);
         if self.pending.is_none() {
             let dropped = ctx.input(|input| {
                 input
@@ -342,7 +375,7 @@ impl eframe::App for Workspace {
                             ui.label("İptal ediliyor");
                         } else {
                             ui.label("Kayıt analiz ediliyor");
-                            if ui.small_button("İptal").clicked() {
+                            if ui.small_button("İptal").on_hover_text("Esc").clicked() {
                                 pending.cancelled.store(true, Ordering::Relaxed);
                             }
                         }
@@ -541,6 +574,7 @@ impl Workspace {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 export = ui
                     .button(RichText::new("RAPORU KAYDET").color(ACCENT))
+                    .on_hover_text("Ctrl+S")
                     .clicked();
             });
         });
@@ -629,12 +663,10 @@ fn open_button(ui: &mut egui::Ui, workspace: &mut Workspace, ctx: &egui::Context
         .min_size(Vec2::new(110.0, 30.0));
     if ui
         .add_enabled(workspace.pending.is_none(), button)
+        .on_hover_text("Ctrl+O")
         .clicked()
-        && let Some(path) = rfd::FileDialog::new()
-            .add_filter("Telemetri kayıtları", &["json", "evtx"])
-            .pick_file()
     {
-        workspace.load(path, ctx);
+        workspace.pick_capture(ctx);
     }
 }
 
@@ -696,14 +728,16 @@ fn timeline(ui: &mut egui::Ui, report: &Report, timeline: &mut Timeline) {
                 }
             });
         reset_scroll |= previous != timeline.kind;
-        reset_scroll |= ui
-            .add(
-                egui::TextEdit::singleline(&mut timeline.query)
-                    .hint_text("Olay ayrıntılarında ara")
-                    .char_limit(160)
-                    .desired_width(204.0),
-            )
-            .changed();
+        let search = ui.add(
+            egui::TextEdit::singleline(&mut timeline.query)
+                .hint_text("Olay ayrıntılarında ara")
+                .char_limit(160)
+                .desired_width(204.0),
+        );
+        if std::mem::take(&mut timeline.focus_search) {
+            search.request_focus();
+        }
+        reset_scroll |= search.changed();
         if !timeline.query.is_empty() && ui.small_button("Aramayı temizle").clicked() {
             timeline.query.clear();
             reset_scroll = true;
@@ -888,6 +922,31 @@ fn process_tree(report: &Report) -> Vec<(&str, usize)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn control_f_opens_the_timeline_and_focuses_search() {
+        let capture = serde_json::from_str(include_str!("../examples/capture.json")).unwrap();
+        let report = analyze(capture).unwrap();
+        let mut workspace = Workspace::default();
+        workspace.finish_load("sample.json".into(), Ok(Loaded::Report(Box::new(report))));
+        let ctx = egui::Context::default();
+        let _ = ctx.run(
+            egui::RawInput {
+                modifiers: egui::Modifiers::CTRL,
+                events: vec![egui::Event::Key {
+                    key: egui::Key::F,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::CTRL,
+                }],
+                ..Default::default()
+            },
+            |ctx| workspace.keyboard_actions(ctx),
+        );
+        assert!(workspace.view == View::Timeline);
+        assert!(workspace.timeline.focus_search);
+    }
 
     #[test]
     fn invalid_import_preserves_the_current_report_and_filters() {

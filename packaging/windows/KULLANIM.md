@@ -11,6 +11,9 @@ Süreçler ekranında olayları süreç bazında açabilir ve Genel Bakış'tan 
 yeni bir JSON dosyasına kaydedebilirsin. Komut satırı için
 `./vespdex.exe ./examples/capture.json` kullan.
 
+Klavye kısayolları: **Ctrl+O** kayıt açar, **Ctrl+F** olay aramasına odaklanır,
+**Ctrl+S** raporu kaydeder ve **Esc** süren içe aktarmayı iptal eder.
+
 Sysmon EVTX oluşturma ve canlı gözlem için kayıtların alındığı Windows
 ortamında Sysmon yapılandırılmış olmalıdır. VespDex örnekleri başlatmaz.
 
