@@ -1,11 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.3.0-rc.1
 
 - Added the Windows desktop workspace for JSON telemetry and exported Sysmon EVTX.
-- Added live Sysmon collection, process attribution, timeline filters and report export.
+- Added live Sysmon collection, process attribution, a process tree, event filters, keyboard shortcuts and capture coverage.
+- Added the built-in synthetic demo and safe report saving across desktop, terminal and CLI.
+- Moved Windows desktop rendering to Direct3D 12 with software-adapter support.
 - Added Windows and Linux build checks and a disposable Windows Sysmon acceptance workflow.
-- Added a Windows x64 portable package with archive and file checksums.
+- Added the unsigned Windows x64 portable package with archive and file checksums, plus Turkish and English usage guides.
 
 ## 0.2.0
 

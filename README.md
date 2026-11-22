@@ -4,6 +4,10 @@ VespDex analyzes recorded runtime telemetry in Rust and exchanges reports with A
 
 [Yayın planı ve kabul ölçütleri](docs/RELEASE_PLAN.tr.md)
 
+The source is currently a release candidate (`0.3.0-rc.1`). See the
+[changelog](CHANGELOG.md) for the candidate contents and the release plan
+for verification evidence. The Windows package is unsigned.
+
 ## Windows x64 portable package
 
 Build the package with the following PowerShell commands. The ZIP and its
