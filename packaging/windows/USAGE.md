@@ -5,10 +5,11 @@ or run `./vespdex.exe --gui` in PowerShell from that folder. Rust is not
 required.
 The desktop requires a Direct3D 12 hardware or Windows software adapter.
 
-Use **DOSYA SEÇ** (Choose file) to open `examples/capture.json`. The overview
+Use **ÖRNEK KAYDI AÇ** (Open example) to open the built-in synthetic capture. The overview
 shows four events and two processes. Use the timeline to filter DNS activity,
 the process view to isolate a process tree, and **RAPORU KAYDET** (Save report)
-to export JSON. The CLI also accepts `./vespdex.exe ./examples/capture.json`.
+to export JSON. Use `./vespdex.exe --demo` for the CLI report. You can also
+open `examples/capture.json` directly.
 
 Keyboard shortcuts: **Ctrl+O** opens a capture, **Ctrl+F** focuses timeline
 search, **Ctrl+S** saves a report and **Esc** cancels an active import.

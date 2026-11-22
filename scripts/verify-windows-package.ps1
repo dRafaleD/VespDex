@@ -58,6 +58,10 @@ try {
         & $binary $demo --output $savedReport
         if ($LASTEXITCODE -ne 0) { throw 'Packaged executable failed to analyze the sample.' }
         $json = [IO.File]::ReadAllText($savedReport)
+        $embedded = & $binary --demo
+        if ($LASTEXITCODE -ne 0 -or $embedded -cne $json.TrimEnd()) {
+            throw 'The embedded demo did not match the packaged capture.'
+        }
     } finally {
         Pop-Location
     }
@@ -73,7 +77,7 @@ try {
         $start.CreateNoWindow = $true
         $start.RedirectStandardError = $true
         $start.ArgumentList.Add('--gui')
-        $start.ArgumentList.Add($demo)
+        $start.ArgumentList.Add('--demo')
         $window = [Diagnostics.Process]::Start($start)
         $diagnostics = $window.StandardError.ReadToEndAsync()
         try {

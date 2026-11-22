@@ -29,8 +29,11 @@ the timeline filtered to that process. **Raporu kaydet** exports the same
 JSON report used by the CLI. Open the example directly with:
 
 ```powershell
-cargo run --locked -- --gui examples/capture.json
+vespdex --gui --demo
 ```
+
+The **ÖRNEK KAYDI AÇ** button runs the same built-in synthetic capture.
+Use `vespdex --demo` for its CLI report.
 
 An invalid or cancelled import leaves the last successful report and its
 filters in place. Use **İptal** in the status bar to stop an EVTX import.

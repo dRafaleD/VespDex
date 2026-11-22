@@ -55,6 +55,26 @@ fn reports_the_sorted_timeline_and_process_relationships() {
 }
 
 #[test]
+fn builtin_demo_matches_the_documented_sample_without_opening_a_capture_file() {
+    let workspace = tempfile::tempdir().unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_vespdex"))
+        .current_dir(workspace.path())
+        .arg("--demo")
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(
+        result.stdout,
+        run(include_bytes!("../examples/capture.json")).stdout
+    );
+    assert_eq!(fs::read_dir(workspace.path()).unwrap().count(), 0);
+}
+
+#[test]
 fn uses_absolute_time_and_preserves_events_without_a_process() {
     let mut input = capture();
     input["events"] = json!([

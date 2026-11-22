@@ -22,8 +22,11 @@ const MAX_DETAIL: usize = 1_024;
 #[command(version, about = "Analyze recorded runtime telemetry offline")]
 struct Args {
     /// Version 1 telemetry capture JSON
-    #[arg(required_unless_present = "gui")]
+    #[arg(required_unless_present_any = ["gui", "demo"], conflicts_with = "demo")]
     capture: Option<PathBuf>,
+    /// Open or analyze the built-in synthetic example
+    #[arg(long)]
+    demo: bool,
     /// Save the JSON report to a new file instead of writing to stdout
     #[arg(short, long, conflicts_with = "gui")]
     output: Option<PathBuf>,
@@ -340,6 +343,12 @@ fn encoded_report(report: &Report) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
+fn demo_report() -> Result<Report> {
+    analyze(serde_json::from_str(include_str!(
+        "../examples/capture.json"
+    ))?)
+}
+
 fn save_report(report: &Report, destination: &Path) -> Result<()> {
     ensure!(
         destination.file_name().is_some(),
@@ -376,12 +385,16 @@ fn main() -> Result<()> {
     let args = Args::parse();
     if args.gui {
         #[cfg(windows)]
-        return gui::run(args.capture);
+        return gui::run(args.capture, args.demo);
         #[cfg(not(windows))]
         anyhow::bail!("the desktop workspace is available on Windows");
     }
-    let capture = args.capture.context("a telemetry capture is required")?;
-    let report = analyze(read_capture(&capture).context("unable to read capture")?)?;
+    let report = if args.demo {
+        demo_report()?
+    } else {
+        let capture = args.capture.context("a telemetry capture is required")?;
+        analyze(read_capture(&capture).context("unable to read capture")?)?
+    };
     if let Some(destination) = args.output {
         save_report(&report, &destination)?;
     } else {

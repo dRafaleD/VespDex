@@ -11,7 +11,7 @@ use std::{
 use anyhow::Result;
 use eframe::egui::{self, Color32, RichText, Stroke, Vec2};
 
-use crate::{EventKind, Report, analyze, read_capture, save_report};
+use crate::{EventKind, Report, analyze, demo_report, read_capture, save_report};
 
 mod sysmon;
 
@@ -88,7 +88,7 @@ struct PendingLoad {
     cancelled: Arc<AtomicBool>,
 }
 
-pub(crate) fn run(path: Option<PathBuf>) -> Result<()> {
+pub(crate) fn run(path: Option<PathBuf>, demo: bool) -> Result<()> {
     let mask = eframe::icon_data::from_png_bytes(include_bytes!("../assets/asphdex-mask.png"))?;
     let mut setup = eframe::egui_wgpu::WgpuSetupCreateNew::default();
     setup.instance_descriptor.backends = wgpu::Backends::DX12;
@@ -172,6 +172,8 @@ pub(crate) fn run(path: Option<PathBuf>) -> Result<()> {
             };
             if let Some(path) = path {
                 workspace.load(path, &cc.egui_ctx);
+            } else if demo {
+                workspace.load_demo();
             }
             Ok(Box::new(workspace))
         }),
@@ -268,17 +270,7 @@ impl Workspace {
 
     fn finish_load(&mut self, path: PathBuf, result: Result<Loaded>) {
         match result {
-            Ok(Loaded::Report(report)) => {
-                if self.candidate_path.as_ref() != Some(&path) {
-                    self.candidate_path = None;
-                    self.candidates.clear();
-                    self.process_search.clear();
-                }
-                self.path = Some(path);
-                self.report = Some(report);
-                self.timeline = Timeline::default();
-                self.view = View::Overview;
-            }
+            Ok(Loaded::Report(report)) => self.commit_report(Some(path), report),
             Ok(Loaded::Processes(candidates)) => {
                 self.candidate_path = Some(path);
                 self.candidates = candidates;
@@ -292,6 +284,26 @@ impl Workspace {
                     .to_string_lossy();
                 self.message = Some((true, format!("Kayıt açılamadı ({file}): {error:#}")));
             }
+        }
+    }
+
+    fn commit_report(&mut self, path: Option<PathBuf>, report: Box<Report>) {
+        if self.candidate_path != path {
+            self.candidate_path = None;
+            self.candidates.clear();
+            self.process_search.clear();
+        }
+        self.path = path;
+        self.report = Some(report);
+        self.timeline = Timeline::default();
+        self.view = View::Overview;
+        self.message = None;
+    }
+
+    fn load_demo(&mut self) {
+        match demo_report() {
+            Ok(report) => self.commit_report(None, Box::new(report)),
+            Err(error) => self.message = Some((true, format!("Örnek kayıt açılamadı: {error:#}"))),
         }
     }
 
@@ -422,7 +434,16 @@ impl eframe::App for Workspace {
                                 .visible_path()
                                 .and_then(|path| path.file_name())
                                 .map(|name| name.to_string_lossy())
-                                .unwrap_or_else(|| "Henüz kayıt yok".into());
+                                .unwrap_or_else(|| {
+                                    if self.view != View::Start
+                                        && self.report.is_some()
+                                        && self.path.is_none()
+                                    {
+                                        "Yerleşik örnek".into()
+                                    } else {
+                                        "Henüz kayıt yok".into()
+                                    }
+                                });
                             ui.add(
                                 egui::Label::new(
                                     RichText::new(name).small().monospace().color(MUTED),
@@ -562,6 +583,12 @@ impl Workspace {
                     ui.add_space(12.0);
                     open_button(ui, self, ctx);
                     ui.add_space(7.0);
+                    if ui
+                        .add_enabled(self.pending.is_none(), egui::Button::new("ÖRNEK KAYDI AÇ"))
+                        .clicked()
+                    {
+                        self.load_demo();
+                    }
                 });
             });
         });
@@ -599,11 +626,15 @@ impl Workspace {
                 ui.add_space(8.0);
                 ui.label(format!("Vaka  {}", report.case_id));
                 ui.label(format!("Kaynak  {}", report.source));
-                ui.label(
-                    RichText::new(format!("SHA-256  {}", report.sample_sha256))
-                        .monospace()
-                        .color(MUTED),
-                );
+                if self.path.is_some() {
+                    ui.label(
+                        RichText::new(format!("SHA-256  {}", report.sample_sha256))
+                            .monospace()
+                            .color(MUTED),
+                    );
+                } else {
+                    ui.label(RichText::new("Sentetik örnek · SHA-256 yer tutucu").color(MUTED));
+                }
                 if let Some(window) = &report.capture_window {
                     ui.label(
                         RichText::new(format!("Gözlem  {} – {}", window.start, window.end))
