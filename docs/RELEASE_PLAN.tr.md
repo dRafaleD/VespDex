@@ -19,6 +19,18 @@ ortamından toplar. Bir olaya ait eksik kayıtlar ekranda açıkça belirtilir.
 
 ## Doğrulama kaydı
 
+Gerçek Sysmon kabul kontrolünü, SHA-256 ve süreç/dosya oluşturma kayıtları
+etkin bir Windows analiz ortamında çalıştır:
+
+```powershell
+cargo build --release --locked
+./scripts/verify-sysmon.ps1 -VespDex ./target/release/vespdex.exe
+```
+
+Kontrol zararsız bir üst/alt süreç ve geçici işaret dosyası oluşturur. Canlı
+kayıttan ve dışa aktarılmış EVTX'ten kök SHA-256, üst/alt süreç ilişkisi ve
+dosya olayını doğrular. Sysmon ayarlarını değiştirmez.
+
 Her kabul sonucu için commit, ortam, komut ya da kullanıcı akışı, sonuç ve bilinen
 sınırlar kaydedilir. Örnek telemetri uydurma veya açıkça zararsız kayıtlardan gelir.
 Kullanıcı kayıtları ve gerçek örnekler depoya eklenmez. Kapsam dışındaki olaylar

@@ -24,13 +24,15 @@ jobs:
       - run: cargo +stable fmt --all -- --check
       - run: cargo +stable clippy --all-targets --locked -- -D warnings
       - run: cargo +stable test --locked
-      - name: Parse Sysmon collector with Windows PowerShell
+      - name: Parse Sysmon scripts with Windows PowerShell
         if: runner.os == 'Windows'
         shell: powershell
         run: |
-          $tokens = $null
-          $problems = $null
-          [System.Management.Automation.Language.Parser]::ParseFile(
-            (Resolve-Path 'scripts/convert-sysmon.ps1').Path, [ref]$tokens, [ref]$problems
-          ) | Out-Null
-          if ($problems) { throw ($problems -join [Environment]::NewLine) }
+          foreach ($script in @('scripts/convert-sysmon.ps1', 'scripts/verify-sysmon.ps1')) {
+            $tokens = $null
+            $problems = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $script).Path, [ref]$tokens, [ref]$problems
+            ) | Out-Null
+            if ($problems) { throw ($problems -join [Environment]::NewLine) }
+          }
