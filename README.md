@@ -56,6 +56,9 @@ process. `processes` lists process GUIDs, recorded images, parents and event
 counts. Page Up and Page Down scroll through the results.
 
 Passing a capture path keeps the direct JSON output for scripts.
+Use `--output behavior.json` to save to a new file. Desktop, terminal and
+CLI exports write the complete report before publishing the destination and
+refuse to replace existing files.
 
 ```powershell
 # PowerShell 7+

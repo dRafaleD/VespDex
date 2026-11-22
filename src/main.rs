@@ -24,6 +24,9 @@ struct Args {
     /// Version 1 telemetry capture JSON
     #[arg(required_unless_present = "gui")]
     capture: Option<PathBuf>,
+    /// Save the JSON report to a new file instead of writing to stdout
+    #[arg(short, long, conflicts_with = "gui")]
+    output: Option<PathBuf>,
     /// Open the Windows desktop workspace
     #[arg(long)]
     gui: bool,
@@ -337,6 +340,35 @@ fn encoded_report(report: &Report) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
+fn save_report(report: &Report, destination: &Path) -> Result<()> {
+    ensure!(
+        destination.file_name().is_some(),
+        "select a report filename"
+    );
+    let parent = destination
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let bytes = encoded_report(report)?;
+    let mut staged = tempfile::Builder::new()
+        .prefix(".vespdex-report-")
+        .suffix(".tmp")
+        .tempfile_in(parent)
+        .context("could not create a temporary report beside the destination")?;
+    staged
+        .write_all(&bytes)
+        .context("could not write the report")?;
+    staged
+        .as_file()
+        .sync_all()
+        .context("could not flush the report")?;
+    staged
+        .persist_noclobber(destination)
+        .map_err(|failure| failure.error)
+        .with_context(|| format!("could not save a new report at {}", destination.display()))?;
+    Ok(())
+}
+
 fn main() -> Result<()> {
     if std::env::args_os().len() == 1 && io::stdin().is_terminal() && io::stdout().is_terminal() {
         return terminal::run();
@@ -350,6 +382,10 @@ fn main() -> Result<()> {
     }
     let capture = args.capture.context("a telemetry capture is required")?;
     let report = analyze(read_capture(&capture).context("unable to read capture")?)?;
-    io::stdout().lock().write_all(&encoded_report(&report)?)?;
+    if let Some(destination) = args.output {
+        save_report(&report, &destination)?;
+    } else {
+        io::stdout().lock().write_all(&encoded_report(&report)?)?;
+    }
     Ok(())
 }

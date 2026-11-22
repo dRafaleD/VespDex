@@ -54,8 +54,10 @@ try {
     try {
         $actualVersion = & $binary --version
         if ($LASTEXITCODE -ne 0 -or $actualVersion -cne "vespdex $version") { throw 'Unexpected packaged executable version.' }
-        $json = & $binary $demo
+        $savedReport = Join-Path $install 'verified-report.json'
+        & $binary $demo --output $savedReport
         if ($LASTEXITCODE -ne 0) { throw 'Packaged executable failed to analyze the sample.' }
+        $json = [IO.File]::ReadAllText($savedReport)
     } finally {
         Pop-Location
     }

@@ -1,9 +1,6 @@
 use std::{
     fs,
-    path::PathBuf,
-    process::{Command, Output},
-    sync::atomic::{AtomicUsize, Ordering},
-    time::{SystemTime, UNIX_EPOCH},
+    process::{Command, Output, Stdio},
 };
 
 use serde_json::{Value, json};
@@ -13,36 +10,13 @@ fn capture() -> Value {
 }
 
 fn run(bytes: &[u8]) -> Output {
-    static NEXT: AtomicUsize = AtomicUsize::new(0);
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let index = NEXT.fetch_add(1, Ordering::Relaxed);
-    let path = std::env::temp_dir().join(format!(
-        "vespdex-{}-{stamp}-{index}.json",
-        std::process::id()
-    ));
-    let mut file = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&path)
-        .unwrap();
-    let cleanup = TempCapture(path);
-    std::io::Write::write_all(&mut file, bytes).unwrap();
-    drop(file);
+    let workspace = tempfile::tempdir().unwrap();
+    let path = workspace.path().join("capture.json");
+    fs::write(&path, bytes).unwrap();
     Command::new(env!("CARGO_BIN_EXE_vespdex"))
-        .arg(&cleanup.0)
+        .arg(&path)
         .output()
         .unwrap()
-}
-
-struct TempCapture(PathBuf);
-
-impl Drop for TempCapture {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
-    }
 }
 
 fn assert_rejected(input: &Value, message: &str) {
@@ -174,4 +148,54 @@ fn enforces_the_capture_byte_and_event_limits() {
     let mut input = capture();
     input["events"] = json!(vec![input["events"][0].clone(); 2001]);
     assert_rejected(&input, "too many events");
+}
+
+#[test]
+fn concurrent_exports_never_replace_another_report_or_leave_staging_files() {
+    let workspace = tempfile::tempdir().unwrap();
+    let capture = workspace.path().join("capture.json");
+    let report = workspace.path().join("report.json");
+    fs::write(&capture, include_bytes!("../examples/capture.json")).unwrap();
+
+    let export = || {
+        Command::new(env!("CARGO_BIN_EXE_vespdex"))
+            .arg(&capture)
+            .arg("--output")
+            .arg(&report)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap()
+    };
+    let first = export();
+    let second = export();
+    let a = first.wait_with_output().unwrap();
+    let b = second.wait_with_output().unwrap();
+    assert_ne!(a.status.success(), b.status.success());
+    assert!(a.stdout.is_empty() && b.stdout.is_empty());
+    let saved = fs::read(&report).unwrap();
+    let value: Value = serde_json::from_slice(&saved).unwrap();
+    assert_eq!(value["events"].as_array().unwrap().len(), 4);
+
+    let replacement = export().wait_with_output().unwrap();
+    assert!(!replacement.status.success());
+    assert_eq!(fs::read(&report).unwrap(), saved);
+    assert_eq!(fs::read_dir(workspace.path()).unwrap().count(), 2);
+}
+
+#[test]
+fn invalid_capture_does_not_create_an_output_file() {
+    let workspace = tempfile::tempdir().unwrap();
+    let capture = workspace.path().join("capture.json");
+    let report = workspace.path().join("report.json");
+    fs::write(&capture, b"{}").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_vespdex"))
+        .arg(&capture)
+        .arg("-o")
+        .arg(&report)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(!report.exists());
+    assert_eq!(fs::read_dir(workspace.path()).unwrap().count(), 1);
 }

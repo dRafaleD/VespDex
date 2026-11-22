@@ -1,6 +1,5 @@
 use std::{
-    env,
-    fs::{self, OpenOptions},
+    env, fs,
     io::{self, Write},
     path::PathBuf,
     time::Instant,
@@ -19,7 +18,7 @@ use crossterm::{
 };
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use crate::{EventKind, Report, analyze, encoded_report, normalize_guid, read_capture};
+use crate::{EventKind, Report, analyze, normalize_guid, read_capture, save_report};
 
 mod boot;
 mod portrait;
@@ -221,12 +220,7 @@ impl Workspace {
             "export" => {
                 let path = path_argument(arg)?;
                 let report = self.report.as_ref().context("open <file> → analyze")?;
-                let bytes = encoded_report(report)?;
-                OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .open(&path)?
-                    .write_all(&bytes)?;
+                save_report(report, &path)?;
                 self.status = Some(self.text("rapor kaydedildi", "report saved").into());
             }
             _ => anyhow::bail!(

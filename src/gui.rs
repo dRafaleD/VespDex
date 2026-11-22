@@ -1,7 +1,5 @@
 use std::{
     collections::BTreeMap,
-    fs::OpenOptions,
-    io::Write,
     path::PathBuf,
     sync::{
         Arc,
@@ -13,7 +11,7 @@ use std::{
 use anyhow::Result;
 use eframe::egui::{self, Color32, RichText, Stroke, Vec2};
 
-use crate::{EventKind, Report, analyze, encoded_report, read_capture};
+use crate::{EventKind, Report, analyze, read_capture, save_report};
 
 mod sysmon;
 
@@ -282,20 +280,9 @@ impl Workspace {
         else {
             return;
         };
-        let result = encoded_report(report).and_then(|bytes| {
-            OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&path)?
-                .write_all(&bytes)?;
-            Ok(())
-        });
-        self.message = Some(match result {
+        self.message = Some(match save_report(report, &path) {
             Ok(()) => (false, format!("Rapor kaydedildi: {}", path.display())),
-            Err(error) => (
-                true,
-                format!("Rapor kaydedilemedi. Yeni bir dosya adı seç. ({error})"),
-            ),
+            Err(error) => (true, format!("Rapor kaydedilemedi: {error:#}")),
         });
     }
 }

@@ -9,6 +9,7 @@ clap = { version = "4.5", features = ["derive"] }
 crossterm = "0.29"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tempfile = "3.27"
 time = { version = "0.3", features = ["parsing"] }
 unicode-width = "0.2"
 
