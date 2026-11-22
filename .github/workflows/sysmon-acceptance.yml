@@ -1,0 +1,51 @@
+name: Sysmon acceptance
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sysmon:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build VespDex
+        run: cargo +stable build --release --locked
+      - name: Install signed Sysmon on the disposable runner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $folder = Join-Path $env:RUNNER_TEMP 'vespdex-sysmon'
+          New-Item -ItemType Directory -Path $folder | Out-Null
+          $archive = Join-Path $folder 'Sysmon.zip'
+          Invoke-WebRequest -Uri 'https://download.sysinternals.com/files/Sysmon.zip' -OutFile $archive -TimeoutSec 60
+          Expand-Archive -LiteralPath $archive -DestinationPath $folder
+          $binary = Join-Path $folder 'Sysmon64.exe'
+          $signature = Get-AuthenticodeSignature -LiteralPath $binary
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch '(^|,\s*)O=Microsoft Corporation(,|$)') {
+              throw 'Sysmon executable does not have the expected valid Microsoft signature.'
+          }
+          Get-FileHash -LiteralPath $binary -Algorithm SHA256
+          (Get-Item -LiteralPath $binary).VersionInfo.FileVersion
+          $config = Join-Path $folder 'sysmon.xml'
+          @'
+          <Sysmon schemaversion="4.82">
+            <HashAlgorithms>SHA256</HashAlgorithms>
+            <EventFiltering>
+              <ProcessCreate onmatch="exclude" />
+              <FileCreate onmatch="include">
+                <TargetFilename condition="end with">\marker.txt</TargetFilename>
+              </FileCreate>
+            </EventFiltering>
+          </Sysmon>
+          '@ | Set-Content -LiteralPath $config -Encoding utf8
+          & $binary -accepteula -i $config
+          if ($LASTEXITCODE -ne 0) { throw "Sysmon installation failed ($LASTEXITCODE)." }
+      - name: Verify live and EVTX behavior from a benign fixture
+        shell: pwsh
+        run: ./scripts/verify-sysmon.ps1 -VespDex ./target/release/vespdex.exe
