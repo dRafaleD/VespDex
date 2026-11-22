@@ -1,0 +1,25 @@
+# VespDex yayın planı
+
+Hedef, Windows x64 üzerinde kurulabilen ve savunma amaçlı dinamik analiz için
+kullanılabilen bir VespDex sürüm adayı. AsphDex masaüstünde statik analiz yapar.
+Banshee CLI üzerinden göstergeleri işler. VespDex Sysmon kaynaklı kayıtları
+davranış zaman çizelgesine ve süreç ilişkilerine dönüştürür. İlk desteklenen canlı
+akışta analist gözlemi kendisi başlatır, VespDex kayıtları yetkili Windows analiz
+ortamından toplar. Bir olaya ait eksik kayıtlar ekranda açıkça belirtilir.
+
+## Aşamalar ve kabul kanıtı
+
+| Aşama | Teslim | Kabul kanıtı |
+| --- | --- | --- |
+| 1. Çekirdek ve CI | Rapor sözleşmesini, hatalı girdi sınırlarını ve Windows adaptörünü kapsayan kontroller | Windows ve Linux'ta kilitli bağımlılıklarla derleme, biçim, Clippy ve CLI regresyonları. Windows PowerShell 5.1'de dönüştürücü sözdizimi. |
+| 2. Gerçek dinamik analiz | Örnek EVTX, süreç ve alt süreç ilişkileri, canlı Sysmon gözlem aralığı, süre ve çıktı sınırları, anlaşılır hata mesajları | Yetkili bir Windows analiz ortamında zararsız bir örnekle alınan gerçek EVTX ve canlı gözlem. Bilinen süreç, dosya ve seçili ağ olayları raporla karşılaştırılır. Desteklenmeyen veya kayıp olaylar ayrı gösterilir. |
+| 3. Masaüstü deneyimi | AsphDex görsel dili, kayıt seçimi, filtrelenebilir zaman çizelgesi, üst/alt süreç görünümü, erişilebilir klavye akışı ve rapor kaydetme | GUI'de normal ve dar pencerede örnek EVTX açılır, odak ve filtreler çalışır, süreç kaynağı görünür, JSON yeniden okunur. Geçersiz kayıt ve iptal akışları da kontrol edilir. |
+| 4. Ekosistem | Belgelenmiş v1 sözleşmesi ve geriye uyumluluk, AsphDex'te hash eşleştirme, Banshee'de ağ göstergeleri | Aynı zararsız örneğin VespDex raporu AsphDex'te eşleşir ve farklı hash reddedilir. Banshee aynı rapordan beklenen göstergeleri çıkarır. Entegrasyonların dağıtım durumu ayrı kaydedilir. |
+| 5. Dağıtım ve destek | Sürüm numarası, Windows x64 paketi, içerik listesi, SHA-256, Türkçe/İngilizce başlangıç ve sorun giderme, değişiklik geçmişi | Temiz Windows ortamında indirme/kurulum, GUI ve CLI açılışı, demo, rapor kaydetme ve kaldırma doğrulanır. İmzalama durumu ve desteklenen ortamlar paketle açıkça belgelenir. |
+
+## Doğrulama kaydı
+
+Her kabul sonucu için commit, ortam, komut ya da kullanıcı akışı, sonuç ve bilinen
+sınırlar kaydedilir. Örnek telemetri uydurma veya açıkça zararsız kayıtlardan gelir.
+Kullanıcı kayıtları ve gerçek örnekler depoya eklenmez. Kapsam dışındaki olaylar
+ve doğrulanmamış platformlar yayın notlarına yazılır.

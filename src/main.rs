@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     fs::File,
     io::{self, IsTerminal, Read, Write},
     path::{Path, PathBuf},
@@ -147,12 +147,36 @@ fn normalize_guid(value: &str) -> Result<String> {
 
 fn read_capture(path: &Path) -> Result<Capture> {
     ensure!(path.metadata()?.is_file(), "capture must be a regular file");
+    let file = File::open(path)?;
+    let metadata = file.metadata()?;
+    ensure!(metadata.is_file(), "capture must be a regular file");
+    ensure!(metadata.len() <= MAX_BYTES, "capture exceeds 4 MiB");
     let mut bytes = Vec::new();
-    File::open(path)?
-        .take(MAX_BYTES + 1)
-        .read_to_end(&mut bytes)?;
+    file.take(MAX_BYTES + 1).read_to_end(&mut bytes)?;
     ensure!(bytes.len() as u64 <= MAX_BYTES, "capture exceeds 4 MiB");
     serde_json::from_slice(&bytes).context("invalid telemetry capture JSON")
+}
+
+fn validate_process_relationships(processes: &BTreeMap<String, ProcessSummary>) -> Result<()> {
+    let mut checked = HashSet::new();
+    for guid in processes.keys() {
+        let mut current = Some(guid.as_str());
+        let mut path = HashSet::new();
+        while let Some(guid) = current {
+            if checked.contains(guid) {
+                break;
+            }
+            ensure!(
+                path.insert(guid),
+                "cycle in recorded process ancestry at {guid}"
+            );
+            current = processes
+                .get(guid)
+                .and_then(|process| process.parent_process_guid.as_deref());
+        }
+        checked.extend(path);
+    }
+    Ok(())
 }
 
 fn analyze(capture: Capture) -> Result<Report> {
@@ -250,6 +274,7 @@ fn analyze(capture: Capture) -> Result<Report> {
         }
         timeline.push((timestamp, event));
     }
+    validate_process_relationships(&processes)?;
     timeline.sort_by_key(|(timestamp, _)| *timestamp);
 
     Ok(Report {
@@ -270,7 +295,7 @@ fn analyze(capture: Capture) -> Result<Report> {
 
 fn encoded_report(report: &Report) -> Result<Vec<u8>> {
     let mut bytes = serde_json::to_vec(report)?;
-    ensure!(bytes.len() as u64 + 1 <= MAX_BYTES, "report exceeds 4 MiB");
+    ensure!((bytes.len() as u64) < MAX_BYTES, "report exceeds 4 MiB");
     bytes.push(b'\n');
     Ok(bytes)
 }

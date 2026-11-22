@@ -55,7 +55,7 @@ impl View {
 struct Workspace {
     mask: Option<egui::TextureHandle>,
     path: Option<PathBuf>,
-    report: Option<Report>,
+    report: Option<Box<Report>>,
     pending: Option<Receiver<Result<Loaded>>>,
     candidates: Vec<sysmon::Candidate>,
     process_search: String,
@@ -67,7 +67,7 @@ struct Workspace {
 }
 
 enum Loaded {
-    Report(Report),
+    Report(Box<Report>),
     Processes(Vec<sysmon::Candidate>),
 }
 
@@ -144,7 +144,10 @@ impl Workspace {
             if evtx {
                 sysmon::list(&path).map(Loaded::Processes)
             } else {
-                read_capture(&path).and_then(analyze).map(Loaded::Report)
+                read_capture(&path)
+                    .and_then(analyze)
+                    .map(Box::new)
+                    .map(Loaded::Report)
             }
         });
     }
@@ -419,7 +422,7 @@ impl Workspace {
                     report.sample_sha256 == expected_hash,
                     "selected process no longer matches the EVTX process list"
                 );
-                Ok(Loaded::Report(report))
+                Ok(Loaded::Report(Box::new(report)))
             });
         }
     }

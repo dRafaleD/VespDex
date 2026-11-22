@@ -2,6 +2,8 @@
 
 VespDex analyzes recorded runtime telemetry in Rust and exchanges reports with AsphDex and Banshee. It builds a timeline, groups events by process and accepts recordings from Windows Sysmon. Use the fictional capture for demonstration.
 
+[Yayın planı ve kabul ölçütleri](docs/RELEASE_PLAN.tr.md)
+
 ## Windows desktop workspace
 
 Run `vespdex --gui` and choose **DOSYA SEÇ** to open telemetry JSON or an
