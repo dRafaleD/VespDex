@@ -4,6 +4,17 @@ VespDex analyzes recorded runtime telemetry in Rust and exchanges reports with A
 
 [Yayın planı ve kabul ölçütleri](docs/RELEASE_PLAN.tr.md)
 
+## Windows x64 portable package
+
+Build the package with the following PowerShell commands. The ZIP and its
+checksum are written under `target/dist`. The package also includes Turkish
+and English usage instructions and checksums for all packaged files.
+
+```powershell
+cargo build --release --locked
+./scripts/package-windows.ps1 -Binary ./target/release/vespdex.exe
+```
+
 ## Windows desktop workspace
 
 Run `vespdex --gui` and choose **DOSYA SEÇ** to open telemetry JSON or an
