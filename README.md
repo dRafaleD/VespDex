@@ -61,6 +61,8 @@ In AsphDex, analyze the corresponding file and choose **Import behavior report**
 
 ## Format v1
 
+[Behavior report field reference and interoperability check](docs/BEHAVIOR_REPORT_V1.md)
+
 Input is UTF-8 JSON without a byte order mark. The capture contains `schemaVersion` (1), `caseId` (1–64 ASCII letters, digits, underscore or hyphen), `sampleSha256` (64 hex digits), `source` (collector or capture label, up to 128 bytes), and `events` (up to 2,000). Each event has a `timestamp` in RFC 3339, a `kind`, and a single-line `detail` of up to 1,024 UTF-8 bytes. Supported kinds are `process-start`, `file-write`, `registry-write`, `network-connection` and `dns-query`. The size limit is 4 MiB.
 
 The output adds `tool: "vespdex"`, `toolVersion` and `counts`. It retains the `asphdex-behavior-report` format identifier for compatibility. It contains recorded event text, so avoid placing secrets in captures you intend to share. The case ID, source label and sample hash are supplied by the capture producer. A matching hash links the report to a file but does not verify who collected the events or prove they came from that file. Counts describe captured coverage only.

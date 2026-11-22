@@ -19,6 +19,16 @@ ortamından toplar. Bir olaya ait eksik kayıtlar ekranda açıkça belirtilir.
 
 ## Doğrulama kaydı
 
+- Windows Server 2025 üzerinde [Sysmon kabul çalışması](https://github.com/dRafaleD/VespDex/actions/runs/45054079878)
+  (`276b790`) geçti. Gerçek canlı kayıt ve dışa aktarılmış EVTX için kök
+  SHA-256, bir alt süreç ve ona ait dosya olayı doğrulandı. Canlı raporda
+  gözlem aralığı vardı. Bu senaryo ağ olaylarını ölçmedi.
+- Yerel [üç araç uyum kontrolü](BEHAVIOR_REPORT_V1.md#interoperability-check)
+  geçti. AsphDex (`a940301`) aynı dosyanın hash'ini eşleştirdi ve farklı
+  hash'i reddetti. Banshee (`e68d1b0`) iki ağ göstergesini doğru olay
+  sıralarıyla çıkardı. Entegrasyon commit'leri yerel depolarda, GUI dosya
+  seçici akışı ve bu entegrasyonların yayını ayrı doğrulanacak.
+
 Gerçek Sysmon kabul kontrolünü, SHA-256 ve süreç/dosya oluşturma kayıtları
 etkin bir Windows analiz ortamında çalıştır:
 
