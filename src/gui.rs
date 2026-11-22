@@ -57,7 +57,8 @@ struct Workspace {
     mask: Option<egui::TextureHandle>,
     path: Option<PathBuf>,
     report: Option<Box<Report>>,
-    pending: Option<Receiver<Result<Loaded>>>,
+    pending: Option<PendingLoad>,
+    candidate_path: Option<PathBuf>,
     candidates: Vec<sysmon::Candidate>,
     process_search: String,
     message: Option<(bool, String)>,
@@ -76,6 +77,11 @@ struct Timeline {
 enum Loaded {
     Report(Box<Report>),
     Processes(Vec<sysmon::Candidate>),
+}
+
+struct PendingLoad {
+    path: PathBuf,
+    result: Receiver<Result<Loaded>>,
 }
 
 pub(crate) fn run(path: Option<PathBuf>) -> Result<()> {
@@ -135,21 +141,15 @@ pub(crate) fn run(path: Option<PathBuf>) -> Result<()> {
 
 impl Workspace {
     fn load(&mut self, path: PathBuf, ctx: &egui::Context) {
-        self.path = Some(path.clone());
-        self.report = None;
-        self.candidates.clear();
-        self.process_search.clear();
-        self.view = View::Start;
-        self.timeline = Timeline::default();
         let evtx = path
             .extension()
             .and_then(|ext| ext.to_str())
             .is_some_and(|ext| ext.eq_ignore_ascii_case("evtx"));
-        self.start_job(ctx, move || {
+        self.start_job(ctx, path, move |path| {
             if evtx {
-                sysmon::list(&path).map(Loaded::Processes)
+                sysmon::list(path).map(Loaded::Processes)
             } else {
-                read_capture(&path)
+                read_capture(path)
                     .and_then(analyze)
                     .map(Box::new)
                     .map(Loaded::Report)
@@ -160,43 +160,69 @@ impl Workspace {
     fn start_job(
         &mut self,
         ctx: &egui::Context,
-        job: impl FnOnce() -> Result<Loaded> + Send + 'static,
+        path: PathBuf,
+        job: impl FnOnce(&std::path::Path) -> Result<Loaded> + Send + 'static,
     ) {
         let (sender, receiver) = mpsc::channel();
         let ctx = ctx.clone();
-        self.pending = Some(receiver);
+        self.pending = Some(PendingLoad {
+            path: path.clone(),
+            result: receiver,
+        });
         self.message = None;
         std::thread::spawn(move || {
-            let _ = sender.send(job());
+            let _ = sender.send(job(&path));
             ctx.request_repaint();
         });
     }
 
     fn poll(&mut self) {
         let Some(pending) = &self.pending else { return };
-        match pending.try_recv() {
-            Ok(result) => {
-                self.pending = None;
-                match result {
-                    Ok(Loaded::Report(report)) => {
-                        self.report = Some(report);
-                        self.timeline = Timeline::default();
-                        self.view = View::Overview;
-                    }
-                    Ok(Loaded::Processes(candidates)) => {
-                        self.candidates = candidates;
-                        self.view = View::ChooseProcess;
-                    }
-                    Err(error) => {
-                        self.message = Some((true, format!("Kayıt açılamadı: {error:#}")))
-                    }
+        let result = match pending.result.try_recv() {
+            Ok(result) => result,
+            Err(TryRecvError::Empty) => return,
+            Err(TryRecvError::Disconnected) => Err(anyhow::anyhow!(
+                "Analiz işlemi beklenmedik şekilde kapandı."
+            )),
+        };
+        let pending = self.pending.take().expect("finished load is present");
+        self.finish_load(pending.path, result);
+    }
+
+    fn finish_load(&mut self, path: PathBuf, result: Result<Loaded>) {
+        match result {
+            Ok(Loaded::Report(report)) => {
+                if self.candidate_path.as_ref() != Some(&path) {
+                    self.candidate_path = None;
+                    self.candidates.clear();
+                    self.process_search.clear();
                 }
+                self.path = Some(path);
+                self.report = Some(report);
+                self.timeline = Timeline::default();
+                self.view = View::Overview;
             }
-            Err(TryRecvError::Empty) => {}
-            Err(TryRecvError::Disconnected) => {
-                self.pending = None;
-                self.message = Some((true, "Analiz işlemi beklenmedik şekilde kapandı.".into()));
+            Ok(Loaded::Processes(candidates)) => {
+                self.candidate_path = Some(path);
+                self.candidates = candidates;
+                self.process_search.clear();
+                self.view = View::ChooseProcess;
             }
+            Err(error) => {
+                let file = path
+                    .file_name()
+                    .unwrap_or(path.as_os_str())
+                    .to_string_lossy();
+                self.message = Some((true, format!("Kayıt açılamadı ({file}): {error:#}")));
+            }
+        }
+    }
+
+    fn visible_path(&self) -> Option<&std::path::Path> {
+        match self.view {
+            View::Start => None,
+            View::ChooseProcess => self.candidate_path.as_deref(),
+            _ => self.path.as_deref(),
         }
     }
 
@@ -310,8 +336,7 @@ impl eframe::App for Workspace {
                         ui.strong(self.view.label());
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             let name = self
-                                .path
-                                .as_ref()
+                                .visible_path()
                                 .and_then(|path| path.file_name())
                                 .map(|name| name.to_string_lossy())
                                 .unwrap_or_else(|| "Henüz kayıt yok".into());
@@ -413,9 +438,9 @@ impl Workspace {
                     }
                 }
             });
-        if let (Some((guid, expected_hash)), Some(path)) = (selected, self.path.clone()) {
-            self.start_job(ctx, move || {
-                let report = sysmon::convert(&path, &guid)?;
+        if let (Some((guid, expected_hash)), Some(path)) = (selected, self.candidate_path.clone()) {
+            self.start_job(ctx, path, move |path| {
+                let report = sysmon::convert(path, &guid)?;
                 anyhow::ensure!(
                     report.sample_sha256 == expected_hash,
                     "selected process no longer matches the EVTX process list"
@@ -807,6 +832,58 @@ fn process_tree(report: &Report) -> Vec<(&str, usize)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invalid_import_preserves_the_current_report_and_filters() {
+        let mut workspace = Workspace::default();
+        let capture = serde_json::from_str(include_str!("../examples/capture.json")).unwrap();
+        workspace.finish_load(
+            "valid.json".into(),
+            Ok(Loaded::Report(Box::new(analyze(capture).unwrap()))),
+        );
+        workspace.view = View::Timeline;
+        workspace.timeline.query = "example.org".into();
+
+        workspace.finish_load(
+            "invalid.evtx".into(),
+            Err(anyhow::anyhow!("invalid event log")),
+        );
+
+        assert_eq!(
+            workspace.visible_path(),
+            Some(std::path::Path::new("valid.json"))
+        );
+        assert!(workspace.view == View::Timeline);
+        assert_eq!(workspace.timeline.query, "example.org");
+        assert!(workspace.report.is_some());
+        assert!(
+            workspace
+                .message
+                .as_ref()
+                .is_some_and(|(error, text)| *error && text.contains("invalid.evtx"))
+        );
+    }
+
+    #[test]
+    fn selecting_a_new_evtx_does_not_relabel_the_previous_report() {
+        let mut workspace = Workspace::default();
+        let capture = serde_json::from_str(include_str!("../examples/capture.json")).unwrap();
+        workspace.finish_load(
+            "valid.json".into(),
+            Ok(Loaded::Report(Box::new(analyze(capture).unwrap()))),
+        );
+        workspace.finish_load("new.evtx".into(), Ok(Loaded::Processes(Vec::new())));
+        assert_eq!(
+            workspace.visible_path(),
+            Some(std::path::Path::new("new.evtx"))
+        );
+        workspace.view = View::Overview;
+        assert_eq!(
+            workspace.visible_path(),
+            Some(std::path::Path::new("valid.json"))
+        );
+        assert!(workspace.report.is_some());
+    }
 
     #[test]
     fn shows_parents_before_children_and_keeps_external_parents_as_roots() {
