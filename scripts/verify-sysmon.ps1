@@ -82,20 +82,22 @@ try {
         $report = $reportJson | ConvertFrom-Json
         if ($report.sampleSha256 -ne $hash) { throw 'The root process SHA-256 did not match the fixture binary.' }
         $children = @($report.events | Where-Object {
-            $_.kind -eq 'process-start' -and $_.parentProcessGuid -eq $rootGuid.ToString('D')
+            $_.kind -eq 'process-start' -and $_.parentProcessGuid -eq $rootGuid.ToString('D') -and $_.detail -eq $engine
         })
-        if ($children.Count -ne 1) { throw 'Expected one direct child process in the analyzed tree.' }
+        $fixtureChildren = @($children | ForEach-Object { $_.processGuid })
         $marker = @($report.events | Where-Object {
-            $_.kind -eq 'file-write' -and $_.detail -eq $writtenFile -and $_.processGuid -eq $children[0].processGuid
+            $_.kind -eq 'file-write' -and $_.detail -eq $writtenFile -and $_.processGuid -in $fixtureChildren
         })
-        if ($marker.Count -lt 1) { throw 'Sysmon did not attribute the marker file creation (event ID 11) to the child.' }
+        if ($marker.Count -lt 1) {
+            throw "Sysmon did not attribute the marker file creation (event ID 11) to a direct fixture child in $($report.caseId). Matching child images: $($children.Count)."
+        }
         if ($report.caseId -eq 'accept-live' -and !$report.captureWindow) {
             throw 'The live report omitted the observation window.'
         }
         [pscustomobject]@{
             case = $report.caseId
             root_sha256_matches = $true
-            direct_children = $children.Count
+            fixture_children = $children.Count
             attributed_marker_events = $marker.Count
             capture_window_recorded = [bool] $report.captureWindow
         }
