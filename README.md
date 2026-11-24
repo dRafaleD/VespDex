@@ -1,146 +1,88 @@
+<p align="center">
+  <img src="assets/vespdex-mask.png" alt="VespDex mask" width="140">
+</p>
+
 # VespDex
 
-VespDex analyzes recorded runtime telemetry in Rust and exchanges reports with AsphDex and Banshee. It builds a timeline, groups events by process and accepts recordings from Windows Sysmon. Use the fictional capture for demonstration.
+**A local runtime telemetry analyzer written in Rust.** VespDex turns Windows Sysmon recordings and v1 JSON captures into searchable event timelines, process trees, and portable behavior reports.
 
-[Yayın planı ve kabul ölçütleri](docs/RELEASE_PLAN.tr.md)
+[Download for Windows x64](https://github.com/dRafaleD/VespDex/releases/tag/v0.3.0-rc.1) · [Türkçe](README.tr.md) · [Behavior report v1](docs/BEHAVIOR_REPORT_V1.md) · [Changelog](CHANGELOG.md)
 
-The source is currently a release candidate (`0.3.0-rc.1`). See the
-[changelog](CHANGELOG.md) for the candidate contents and the release plan
-for verification evidence. The Windows package is unsigned.
+## What you can do
 
-## Windows x64 portable package
+- **Inspect a recording.** Open an exported Sysmon EVTX or a JSON capture in the Windows desktop app. Filter by event type, process, or text. Expand events to inspect and copy their details.
+- **Follow a process tree.** Select a Sysmon process with a recorded SHA-256 to review its events and recorded descendants. The report identifies missing parent or start records and shows which event types were observed.
+- **Export a behavior report.** Save versioned JSON from the desktop, terminal workspace, or CLI. Exports use a new filename and preserve existing files.
 
-Build the package with the following PowerShell commands. The ZIP and its
-checksum are written under `target/dist`. The package also includes Turkish
-and English usage instructions and checksums for all packaged files.
+VespDex reads recorded activity and can collect a time window from an existing local Sysmon log. It does not launch samples. Event counts describe the available recording, and the report provides no malware verdict.
+
+## Install
+
+### Windows x64 portable package
+
+Download the ZIP and `SHA256SUMS.txt` from [Releases](https://github.com/dRafaleD/VespDex/releases). Before extracting, compare the digest with the value in the checksum file:
 
 ```powershell
-cargo build --release --locked
-./scripts/package-windows.ps1 -Binary ./target/release/vespdex.exe
+Get-FileHash -Algorithm SHA256 .\VespDex-0.3.0-rc.1-windows-x64.zip
 ```
 
-## Windows desktop workspace
+Extract the ZIP and open **Start-VespDex.cmd**, then select **Örnek kaydı aç** for the built-in synthetic recording.
 
-The desktop uses Direct3D 12. It prefers hardware rendering and can use
-the Windows software adapter when that adapter is available.
+The current package is an **unsigned pre-release** verified on Windows 11 Pro x64 and Windows Server 2025 x64. The desktop requires a Direct3D 12 hardware or Windows software adapter. The CLI is also checked on Linux. Recent desktop improvements and the Dark, Graphite, Midnight, and High Contrast themes are available from the `main` source branch.
 
-Use **Tema** in the header to select Dark, Graphite, Midnight, or High Contrast.
-VespDex remembers the choice locally for your Windows account.
+### Build from source
 
-Run `vespdex --gui` and choose **Dosya seç** to open telemetry JSON or an
-exported Windows Sysmon EVTX. For EVTX, choose a process with a recorded
-SHA-256 to analyze its process tree. The
-timeline supports event-type, process and text filters. The process tree shows
-the relationships present in the recording. Use **Olayları göster** to open
-the timeline filtered to that process. **Raporu kaydet** exports the same
-JSON report used by the CLI. Open the example directly with:
+With the stable Rust toolchain installed:
 
-```powershell
-vespdex --gui --demo
+```sh
+git clone https://github.com/dRafaleD/VespDex.git
+cd VespDex
+cargo install --path . --locked
 ```
 
-The **Örnek kaydı aç** button runs the same built-in synthetic capture.
-Use `vespdex --demo` for its CLI report.
+On Windows, run `vespdex --gui`. Select **Tema** in the header to change the theme. The preference is stored locally for the Windows account.
 
-An invalid or cancelled import leaves the last successful report and its
-filters in place. Use **İptal** in the status bar to stop an EVTX import.
+## Usage
 
-For live Sysmon capture, use the collector below.
+| Task | Command |
+| --- | --- |
+| Open the Windows desktop with example data | `vespdex --gui --demo` |
+| Open the interactive terminal workspace | `vespdex` |
+| Print the synthetic report as JSON | `vespdex --demo` |
+| Analyze a capture and save a JSON report | `vespdex capture.json --output behavior.json` |
 
-## Terminal workspace
+In the desktop, **Ctrl+O** opens a recording, **Ctrl+F** focuses timeline search, **Ctrl+S** saves the report, and **Esc** cancels an active import. In the terminal workspace, use `help` to list commands and `lang tr` or `lang en` to switch languages.
 
-Install from the source checkout with `cargo install --path . --locked`.
-Make sure Cargo's bin directory is on `PATH` (`%USERPROFILE%\.cargo\bin` on
-Windows by default), then run `vespdex` with no arguments in an interactive
-terminal. To open the workspace from the checkout without installing, run
-`cargo run --locked`. From the checkout directory, use `open examples/capture.json`
-then `analyze` to view the sample. `export behavior.json` saves the report to a
-new file. Use `lang tr|en` to switch the interface language, `help` for the
-available commands, and `quit` to return to the shell.
+### Sysmon recordings
 
-The welcome screen uses AsphDex's 3.4-second scan with the VespDex mask.
-The portrait adapts to the available terminal space. Press
-Esc to skip it. After analysis, use `timeline` for all events,
-`timeline dns-query` for DNS events, or `timeline all <GUID>` for one
-process. `processes` lists process GUIDs, recorded images, parents and event
-counts. Page Up and Page Down scroll through the results.
+The desktop can open exported EVTX files on Windows without a local Sysmon installation. The recording needs Event ID 1 for the process you select, with a SHA-256 value in the `Hashes` field. Supported events are process creation (1), network connection (3), file creation or overwrite (11), registry value set (13), and DNS query (22).
 
-Passing a capture path keeps the direct JSON output for scripts.
-Use `--output behavior.json` to save to a new file. Desktop, terminal and
-CLI exports write the complete report before publishing the destination and
-refuse to replace existing files.
+The included PowerShell adapter also converts an EVTX file or reads a bounded time window from the local Sysmon channel. For live collection, Sysmon must already be configured on the analysis machine. Use the recorded process GUID and a start time before its creation. Run these examples in PowerShell 7+ from the source checkout:
 
 ```powershell
-# PowerShell 7+
-cargo run --locked -- examples/capture.json | Set-Content -Encoding utf8NoBOM behavior.json
-banshee behavior behavior.json
-```
-
-In AsphDex, analyze the corresponding file and choose **Import behavior report** on the Report screen. The import matches the currently analyzed file by SHA-256. The demo uses a placeholder hash and does not match an actual file.
-
-## Format v1
-
-[Behavior report field reference and interoperability check](docs/BEHAVIOR_REPORT_V1.md)
-
-Input is UTF-8 JSON without a byte order mark. The capture contains `schemaVersion` (1), `caseId` (1–64 ASCII letters, digits, underscore or hyphen), `sampleSha256` (64 hex digits), `source` (collector or capture label, up to 128 bytes), and `events` (up to 2,000). Each event has a `timestamp` in RFC 3339, a `kind`, and a single-line `detail` of up to 1,024 UTF-8 bytes. Supported kinds are `process-start`, `file-write`, `registry-write`, `network-connection` and `dns-query`. The size limit is 4 MiB.
-
-The output adds `tool: "vespdex"`, `toolVersion` and `counts`. It retains the `asphdex-behavior-report` format identifier for compatibility. It contains recorded event text, so avoid placing secrets in captures you intend to share. The case ID, source label and sample hash are supplied by the capture producer. A matching hash links the report to a file but does not verify who collected the events or prove they came from that file. Counts describe captured coverage only.
-
-## Import an exported Windows Sysmon log
-
-Events can include a `processGuid`. A process creation event can also name a
-`parentProcessGuid`. The report groups event counts by process and records the
-image and parent when the capture contains the corresponding process creation.
-`unattributedEventCount` shows how many events arrived without a process GUID.
-These fields are additive. Older captures and existing v1 report readers
-remain compatible.
-
-Pass a saved Sysmon Operational EVTX and the `ProcessGuid` from the Event ID 1
-record for the process you want to inspect. The adapter uses the SHA-256
-recorded in that event, follows child process GUIDs and selects supported events
-from that process tree. It never queries the local live log. The input log needs
-to include the root process creation with SHA-256 recording enabled.
-
-```powershell
-# Run in PowerShell 7+ from the VespDex directory.
-# Replace the GUID below with the ProcessGuid from the exported log.
-./scripts/convert-sysmon.ps1 -Evtx ./capture.evtx -ProcessGuid '11111111-1111-1111-1111-111111111111' -CaseId case-001 |
+$processGuid = '11111111-1111-1111-1111-111111111111' # Replace with the recorded ProcessGuid
+./scripts/convert-sysmon.ps1 -Evtx ./capture.evtx -ProcessGuid $processGuid -CaseId case-001 |
     Set-Content -Encoding utf8NoBOM capture.json
-cargo run --locked -- capture.json | Set-Content -Encoding utf8NoBOM behavior.json
+vespdex capture.json --output behavior.json
 ```
-
-The selected IDs are 1 (process creation), 3 (network connection), 11 (file
-creation or overwrite), 13 (registry value set) and 22 (DNS query). Availability
-depends on the Sysmon configuration. The adapter rejects oversized exports
-instead of reporting a silently truncated process tree. Event descriptions are
-in the [Sysmon documentation](https://learn.microsoft.com/en-us/sysinternals/downloads/sysmon).
-
-## Collect a time window from the local Sysmon log
-
-Run the collector inside the Windows analysis environment where Sysmon is
-already enabled. Use the target's process GUID from Event ID 1 and set the
-start before that event. Optionally wait up to 300 seconds for more events
-before reading the log. The collector does not launch a process or change
-Sysmon settings.
 
 ```powershell
 $start = [DateTimeOffset]::UtcNow.AddMinutes(-2)
-$processGuid = '11111111-1111-1111-1111-111111111111' # Replace with the recorded GUID.
-./scripts/convert-sysmon.ps1 -Live -StartTime $start -ObserveSeconds 30 -ProcessGuid $processGuid -CaseId case-001 |
-    Set-Content -Encoding utf8NoBOM capture.json
-cargo run --locked -- capture.json | Set-Content -Encoding utf8NoBOM behavior.json
+./scripts/convert-sysmon.ps1 -Live -StartTime $start -ObserveSeconds 30 -ProcessGuid $processGuid -CaseId live-001 |
+    Set-Content -Encoding utf8NoBOM live.json
+vespdex live.json --output live-behavior.json
 ```
 
-Live captures record the requested start and actual collection cutoff in
-`captureWindow`. A completed query covers events still present in the channel
-and enabled by the Sysmon configuration. Late, filtered or overwritten events
-may be absent. The analyzer keeps the time window in the report and rejects
-events whose timestamps fall outside it.
+The capture window, log retention, and Sysmon configuration determine what the report can show. See [Microsoft's Sysmon event reference](https://learn.microsoft.com/en-us/sysinternals/downloads/sysmon) and the [report specification](docs/BEHAVIOR_REPORT_V1.md).
 
-## Read the report in other tools
+## AsphDex and Banshee
 
-Banshee's `behavior` command reports candidate DNS domains and destination IPs
-found in event detail. Its IOC line numbers are one-based positions in the
-sorted report's `events` array. AsphDex displays event counts for the current
-sample for the duration of the analysis view. Capture data and artifacts are
-not included in AsphDex's static report.
+VespDex emits the v1 `asphdex-behavior-report` format. The AsphDex integration matches a behavior report to an analyzed file by SHA-256. The Banshee integration extracts candidate domains and destination IPs from DNS and network events. These integrations were verified with development builds. Use builds that include the respective importer or `behavior` command. The synthetic demo uses a placeholder hash.
+
+Reports can contain paths, domains, IP addresses, and other recorded text. Review them before sharing.
+
+## Development and license
+
+Run `cargo fmt --all -- --check`, `cargo clippy --all-targets --locked -- -D warnings`, and `cargo test --locked`. To build a portable ZIP on Windows, run `cargo build --release --locked` and then `./scripts/package-windows.ps1 -Binary ./target/release/vespdex.exe`. The ZIP and checksum are written under `target/dist`. See the [package guide](packaging/windows/USAGE.md) and the [release verification record](docs/RELEASE_PLAN.tr.md).
+
+The AsphDex startup animation attribution and ISC terms are in [NOTICE](NOTICE). The repository currently has no project-wide license file.
