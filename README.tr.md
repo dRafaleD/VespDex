@@ -57,6 +57,7 @@ Masaüstünde **Ctrl+O** kayıt açar, **Ctrl+F** aramaya odaklanır, **Ctrl+S**
 Güncel kaynak derlemesi, kaydedilmiş v1 davranış raporlarını masaüstünde, terminalde ve CLI’da açar. Olay sayılarını, süreç ilişkilerini ve kapsam bilgisini kayıttaki olaylardan yeniden çıkarır.
 
 Güncel Windows kaynak derlemesinde **Görünen olayları CSV kaydet** düğmesi zaman çizelgesi filtrelerine uyan olayları kaydeder. JSON dışa aktarma raporun tamamını kaydeder.
+Olay ayrıntısında **İşaretle**, zaman çizelgesinde de **Yalnızca işaretliler** ile incelemek istediğin olayları ayırabilirsin. İşaretler açık kayda aittir. Başka kayıt açtığında veya uygulamayı kapattığında temizlenir.
 
 Olay sayılarını, süreç kapsamını, gözlem aralıklarını ve dosya hash’lerini karşılaştırmak için **Karşılaştırma** ekranında ikinci bir JSON kaydı veya raporu seç.
 Fark tablosundan bir olay türünü seçerek iki kayıttaki ilgili olayları inceleyebilirsin.

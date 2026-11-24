@@ -82,6 +82,8 @@ struct Timeline {
     detail_copied: bool,
     focus_search: bool,
     newest_first: bool,
+    marked: HashSet<usize>,
+    only_marked: bool,
 }
 
 impl Timeline {
@@ -91,6 +93,7 @@ impl Timeline {
         self.query.clear();
         self.from_seconds.clear();
         self.to_seconds.clear();
+        self.only_marked = false;
     }
 }
 
@@ -1086,6 +1089,9 @@ fn timeline(
                 ui.selectable_value(&mut timeline.newest_first, false, "Eskiden yeniye");
                 ui.selectable_value(&mut timeline.newest_first, true, "Yeniden eskiye");
             });
+        reset_scroll |= ui
+            .checkbox(&mut timeline.only_marked, "Yalnızca işaretliler")
+            .changed();
     });
     ui.horizontal_wrapped(|ui| {
         ui.label("İlk olaydan itibaren (sn)");
@@ -1141,6 +1147,7 @@ fn timeline(
         None
     };
     let mut process_changed = false;
+    let mut visible_marks_changed = false;
     if let Some(index) = timeline.selected
         && let Some(row) = timeline_row(&visible, index)
     {
@@ -1177,6 +1184,26 @@ fn timeline(
             let (index, event) = visible[row];
             ui.horizontal(|ui| {
                 ui.strong(event_label(event.kind));
+                let marked = timeline.marked.contains(&index);
+                if ui
+                    .small_button(if marked {
+                        "İşareti kaldır"
+                    } else {
+                        "İşaretle"
+                    })
+                    .clicked()
+                {
+                    if marked {
+                        timeline.marked.remove(&index);
+                    } else {
+                        timeline.marked.insert(index);
+                    }
+                    if timeline.only_marked {
+                        timeline.selected = None;
+                        timeline.detail_copied = false;
+                        visible_marks_changed = true;
+                    }
+                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.small_button("Kapat").clicked() {
                         timeline.selected = None;
@@ -1240,6 +1267,8 @@ fn timeline(
         scroll_to_row = timeline
             .selected
             .and_then(|index| timeline_row(&visible, index));
+    } else if visible_marks_changed {
+        visible = visible_timeline_events(report, timeline, &range);
     }
     let mut export = false;
     ui.horizontal(|ui| {
@@ -1249,6 +1278,13 @@ fn timeline(
                 .monospace()
                 .color(palette.muted),
         );
+        if !timeline.marked.is_empty() {
+            ui.label(
+                RichText::new(format!("{} işaretli", timeline.marked.len()))
+                    .small()
+                    .color(palette.muted),
+            );
+        }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             export = ui
                 .add_enabled(
@@ -1285,8 +1321,14 @@ fn timeline(
     scroll.show_rows(ui, ROW_HEIGHT, visible.len(), |ui, rows| {
         for (index, event) in &visible[rows] {
             let mut label = egui::text::LayoutJob::default();
+            let elapsed = elapsed_label(event.elapsed);
+            let prefix = if timeline.marked.contains(index) {
+                format!("★  {elapsed}")
+            } else {
+                elapsed
+            };
             label.append(
-                &elapsed_label(event.elapsed),
+                &prefix,
                 0.0,
                 egui::TextFormat {
                     font_id: egui::FontId::monospace(11.0),
@@ -1344,8 +1386,9 @@ fn visible_timeline_events<'a>(
         .events
         .iter()
         .enumerate()
-        .filter(|(_, event)| {
-            range.contains(event.elapsed.as_seconds_f64())
+        .filter(|(index, event)| {
+            (!timeline.only_marked || timeline.marked.contains(index))
+                && range.contains(event.elapsed.as_seconds_f64())
                 && timeline_matches(event, report, timeline, &query)
         })
         .collect::<Vec<_>>();
@@ -1888,5 +1931,19 @@ mod tests {
         assert_eq!(state.selected, Some(2));
         click(&mut state, "Önceki");
         assert_eq!(state.selected, Some(3));
+
+        click(&mut state, "İşaretle");
+        assert_eq!(state.marked, HashSet::from([3]));
+        click(&mut state, "Yalnızca işaretliler");
+        assert!(state.only_marked);
+        let range = ElapsedRange::parse("1", "").unwrap();
+        let rows = visible_timeline_events(&report, &state, &range);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].0, 3);
+        state.selected = Some(3);
+        click(&mut state, "İşareti kaldır");
+        assert!(state.marked.is_empty());
+        assert!(state.selected.is_none());
+        assert!(visible_timeline_events(&report, &state, &range).is_empty());
     }
 }

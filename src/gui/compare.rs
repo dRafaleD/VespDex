@@ -379,7 +379,7 @@ mod tests {
         assert!(!includes("Dosya yazma"));
         assert!(!includes("Süreci belirsiz olay"));
 
-        comparison.report = Box::new(demo_report().unwrap());
+        *comparison.report = demo_report().unwrap();
         let frame = draw(&mut comparison, vec![]);
         assert!(frame.shapes.iter().any(|shape|
             matches!(&shape.shape, egui::epaint::Shape::Text(text) if text.galley.text() == "Bu kayıtlardaki olay ve süreç sayıları aynı.")

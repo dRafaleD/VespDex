@@ -57,6 +57,7 @@ In the desktop, **Ctrl+O** opens a recording, **Ctrl+F** focuses timeline search
 The current source build opens saved v1 behavior reports in the desktop, terminal and CLI. It rebuilds counts, process relationships and coverage from the recorded events.
 
 In the current Windows source build, **Görünen olayları CSV kaydet** exports the events that match your timeline filters. The JSON report export saves the complete report.
+Use **İşaretle** in the event detail panel and **Yalnızca işaretliler** to review selected events. Marks belong to the open recording and are cleared when you load another recording or close the app.
 
 Open **Karşılaştırma** and choose a second JSON capture or report to compare recorded event counts, process coverage, observation windows, and file hashes.
 Select an event type in the comparison table to inspect matching events from both recordings.

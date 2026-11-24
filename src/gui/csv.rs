@@ -85,6 +85,18 @@ mod tests {
         assert!(csv.contains(r#""demo-worker.exe","demo-output.txt""#));
         assert!(!csv.contains("example.org"));
 
+        let marked = Timeline {
+            marked: [2].into_iter().collect(),
+            only_marked: true,
+            ..Timeline::default()
+        };
+        let all_time = ElapsedRange::parse("", "").unwrap();
+        let visible = visible_timeline_events(&report, &marked, &all_time);
+        assert_eq!(
+            encode(&report, visible.into_iter().map(|(_, event)| event)),
+            csv
+        );
+
         let folder = tempfile::tempdir().unwrap();
         let path = folder.path().join("events.csv");
         save_report_bytes(csv.as_bytes(), &path).unwrap();
