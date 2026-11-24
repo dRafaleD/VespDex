@@ -1035,11 +1035,50 @@ fn timeline(
         timeline.selected = None;
         timeline.detail_copied = false;
     }
+    let range = match ElapsedRange::parse(&timeline.from_seconds, &timeline.to_seconds) {
+        Ok(range) => range,
+        Err(error) => {
+            ui.colored_label(palette.error, error);
+            return None;
+        }
+    };
+    let mut visible = visible_timeline_events(report, timeline, &range);
+    let mut scroll_to_row = None;
+    let mut process_changed = false;
     if let Some(index) = timeline.selected
-        && let Some(event) = report.events.get(index)
+        && let Ok(row) = visible.binary_search_by_key(&index, |(index, _)| *index)
     {
         palette.panel(palette.active, 12, 8).show(ui, |ui| {
             ui.set_min_width(ui.available_width());
+            let row = ui
+                .horizontal_wrapped(|ui| {
+                    let previous = ui
+                        .add_enabled(row > 0, egui::Button::new("Önceki"))
+                        .clicked();
+                    let next = ui
+                        .add_enabled(row + 1 < visible.len(), egui::Button::new("Sonraki"))
+                        .clicked();
+                    let selected = if previous {
+                        row - 1
+                    } else if next {
+                        row + 1
+                    } else {
+                        row
+                    };
+                    ui.label(
+                        RichText::new(format!("{} / {}", selected + 1, visible.len()))
+                            .monospace()
+                            .color(palette.muted),
+                    );
+                    if selected != row {
+                        timeline.selected = Some(visible[selected].0);
+                        timeline.detail_copied = false;
+                        scroll_to_row = Some(selected);
+                    }
+                    selected
+                })
+                .inner;
+            let (index, event) = visible[row];
             ui.horizontal(|ui| {
                 ui.strong(event_label(event.kind));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1083,27 +1122,31 @@ fn timeline(
                         .clicked()
                     {
                         timeline.focus_process(guid);
-                        reset_scroll = true;
+                        process_changed = true;
                     }
                 }
             });
             ui.separator();
             egui::ScrollArea::vertical()
-                .id_salt("event-detail")
+                .id_salt(("event-detail", index))
                 .max_height(95.0)
                 .show(ui, |ui| {
                     ui.add(egui::Label::new(&event.detail).wrap().selectable(true));
                 });
         });
     }
-    let range = match ElapsedRange::parse(&timeline.from_seconds, &timeline.to_seconds) {
-        Ok(range) => range,
-        Err(error) => {
-            ui.colored_label(palette.error, error);
-            return None;
-        }
-    };
-    let visible = visible_timeline_events(report, timeline, &range);
+    if process_changed {
+        let all_time = ElapsedRange {
+            from: None,
+            to: None,
+        };
+        visible = visible_timeline_events(report, timeline, &all_time);
+        scroll_to_row = timeline.selected.and_then(|index| {
+            visible
+                .binary_search_by_key(&index, |(index, _)| *index)
+                .ok()
+        });
+    }
     let mut export = false;
     ui.horizontal(|ui| {
         ui.label(
@@ -1138,10 +1181,14 @@ fn timeline(
             timeline.process.as_deref(),
         ))
         .auto_shrink([false, false]);
-    if reset_scroll {
+    const ROW_HEIGHT: f32 = 32.0;
+    if let Some(row) = scroll_to_row {
+        scroll =
+            scroll.vertical_scroll_offset(row as f32 * (ROW_HEIGHT + ui.spacing().item_spacing.y));
+    } else if reset_scroll || process_changed {
         scroll = scroll.vertical_scroll_offset(0.0);
     }
-    scroll.show_rows(ui, 32.0, visible.len(), |ui, rows| {
+    scroll.show_rows(ui, ROW_HEIGHT, visible.len(), |ui, rows| {
         for (index, event) in &visible[rows] {
             let mut label = egui::text::LayoutJob::default();
             label.append(
@@ -1182,7 +1229,7 @@ fn timeline(
             );
             let button = egui::Button::new(label)
                 .selected(timeline.selected == Some(*index))
-                .min_size(Vec2::new(ui.available_width(), 32.0))
+                .min_size(Vec2::new(ui.available_width(), ROW_HEIGHT))
                 .truncate();
             if ui.add(button).clicked() {
                 timeline.selected = Some(*index);
@@ -1622,5 +1669,73 @@ mod tests {
         ] {
             assert!(ElapsedRange::parse(from, to).is_err(), "{from} .. {to}");
         }
+    }
+
+    #[test]
+    fn event_detail_buttons_step_within_the_filtered_timeline() {
+        let report = demo_report().unwrap();
+        let mut state = Timeline {
+            query: "demo-worker.exe".into(),
+            from_seconds: "1".into(),
+            selected: Some(2),
+            detail_copied: true,
+            ..Timeline::default()
+        };
+        let ctx = egui::Context::default();
+        let draw = |state: &mut Timeline, events| {
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        Vec2::new(780.0, 520.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        timeline(ui, &report, state, Theme::Dark.palette());
+                    });
+                },
+            )
+        };
+        let click = |state: &mut Timeline, caption: &str| {
+            let frame = draw(state, vec![]);
+            let pos = frame
+                .shapes
+                .iter()
+                .find_map(|shape| match &shape.shape {
+                    egui::epaint::Shape::Text(text) if text.galley.text() == caption => {
+                        Some(text.pos + text.galley.rect.center().to_vec2())
+                    }
+                    _ => None,
+                })
+                .unwrap();
+            for pressed in [true, false] {
+                draw(
+                    state,
+                    vec![
+                        egui::Event::PointerMoved(pos),
+                        egui::Event::PointerButton {
+                            pos,
+                            button: egui::PointerButton::Primary,
+                            pressed,
+                            modifiers: egui::Modifiers::NONE,
+                        },
+                    ],
+                );
+            }
+        };
+        click(&mut state, "Önceki");
+        assert_eq!(state.selected, Some(2));
+        click(&mut state, "Sonraki");
+        assert_eq!(state.selected, Some(3));
+        assert!(!state.detail_copied);
+        click(&mut state, "Sonraki");
+        assert_eq!(state.selected, Some(3));
+        click(&mut state, "Önceki");
+        assert_eq!(state.selected, Some(2));
+        assert_eq!(state.query, "demo-worker.exe");
+        assert_eq!(state.from_seconds, "1");
     }
 }
