@@ -19,6 +19,16 @@ ortamından toplar. Bir olaya ait eksik kayıtlar ekranda açıkça belirtilir.
 
 ## Doğrulama kaydı
 
+- [VespDex 0.3.0-rc.1](https://github.com/dRafaleD/VespDex/releases/tag/v0.3.0-rc.1)
+  özel depoda `d64e343` etiketiyle ön sürüm olarak yayımlandı.
+  [Windows ve Linux CI](https://github.com/dRafaleD/VespDex/actions/runs/45349313212)
+  ile [ayrı Windows Server 2025 paket kontrolü](https://github.com/dRafaleD/VespDex/actions/runs/45349313638)
+  geçti. Temiz çalıştırıcıda GUI `Dx12 / Cpu` ile açıldı. Yayımlanan ZIP,
+  sürüm sayfasından yeniden indirildi. SHA-256 ve sekiz paket dosyası
+  doğrulandı. Windows 11'de GUI açıldı, CLI dört olay ve iki süreç içeren
+  raporu kaydedip yeniden okudu ve geçici çıkarma dizini kaldırıldı.
+  Türkçe ve İngilizce paket kılavuzları sorun gidermeyi ve imza durumunu
+  belgeliyor. AsphDex ve Banshee entegrasyonları yerel commit'lerde.
 - Windows Server 2025 üzerinde [Sysmon kabul çalışması](https://github.com/dRafaleD/VespDex/actions/runs/45054079878)
   (`276b790`) geçti. Gerçek canlı kayıt ve dışa aktarılmış EVTX için kök
   SHA-256, bir alt süreç ve ona ait dosya olayı doğrulandı. Canlı raporda
