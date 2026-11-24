@@ -58,6 +58,7 @@ impl View {
 #[derive(Default)]
 struct Workspace {
     mask: Option<egui::TextureHandle>,
+    header_mask: Option<egui::TextureHandle>,
     path: Option<PathBuf>,
     report: Option<Box<Report>>,
     pending: Option<PendingLoad>,
@@ -75,6 +76,7 @@ struct Timeline {
     process: Option<String>,
     query: String,
     selected: Option<usize>,
+    detail_copied: bool,
     focus_search: bool,
 }
 
@@ -173,8 +175,14 @@ pub(crate) fn run(path: Option<PathBuf>, demo: bool) -> Result<()> {
                 ),
                 egui::TextureOptions::LINEAR,
             );
+            let header_texture = cc.egui_ctx.load_texture(
+                "vespdex-header-mask",
+                header_mask_image(&mask),
+                egui::TextureOptions::LINEAR,
+            );
             let mut workspace = Workspace {
                 mask: Some(texture),
+                header_mask: Some(header_texture),
                 ..Workspace::default()
             };
             if let Some(path) = path {
@@ -186,6 +194,32 @@ pub(crate) fn run(path: Option<PathBuf>, demo: bool) -> Result<()> {
         }),
     )
     .map_err(|error| anyhow::anyhow!("desktop workspace failed: {error}"))
+}
+
+fn header_mask_image(mask: &egui::IconData) -> egui::ColorImage {
+    // The source has broad black margins and dots smaller than one header pixel.
+    // Crop to the supplied figure and keep the strongest dot in each output cell.
+    let [left, top, right, bottom] = [54, 16, 256, 265];
+    let [width, height] = [35, 43];
+    let stride = mask.width as usize * 4;
+    let mut image = egui::ColorImage::new([width, height], Color32::TRANSPARENT);
+    for y in 0..height {
+        let source_y = top + y * (bottom - top) / height;
+        let next_y = top + (y + 1) * (bottom - top) / height;
+        for x in 0..width {
+            let source_x = left + x * (right - left) / width;
+            let next_x = left + (x + 1) * (right - left) / width;
+            let mut green = 0;
+            for row in source_y..next_y {
+                for column in source_x..next_x {
+                    green = green.max(mask.rgba[row * stride + column * 4 + 1]);
+                }
+            }
+            image.pixels[y * width + x] =
+                Color32::from_rgba_unmultiplied(ACCENT.r(), ACCENT.g(), ACCENT.b(), green);
+        }
+    }
+    image
 }
 
 impl Workspace {
@@ -368,7 +402,9 @@ impl eframe::App for Workspace {
             .frame(panel(BG, 22, 10))
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    panel(Color32::BLACK, 2, 2).show(ui, |ui| self.show_mask(ui, 32.0));
+                    if let Some(mask) = &self.header_mask {
+                        ui.image((mask.id(), Vec2::new(31.0, 38.0)));
+                    }
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 0.0;
                         ui.strong(RichText::new("Vesp").size(22.0));
@@ -823,6 +859,7 @@ fn timeline(ui: &mut egui::Ui, report: &Report, timeline: &mut Timeline) {
     });
     if reset_scroll {
         timeline.selected = None;
+        timeline.detail_copied = false;
     }
     let query = timeline.query.trim().to_lowercase();
     let visible: Vec<_> = report
@@ -844,14 +881,33 @@ fn timeline(ui: &mut egui::Ui, report: &Report, timeline: &mut Timeline) {
             ui.set_min_width(ui.available_width());
             ui.horizontal(|ui| {
                 ui.strong(event_label(event.kind));
-                if ui.small_button("Kapat").clicked() {
-                    timeline.selected = None;
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.small_button("Kapat").clicked() {
+                        timeline.selected = None;
+                        timeline.detail_copied = false;
+                    }
+                    let copy_label = if timeline.detail_copied {
+                        "Kopyalandı"
+                    } else {
+                        "Ayrıntıyı kopyala"
+                    };
+                    if ui.small_button(copy_label).clicked() {
+                        ui.ctx().copy_text(event.detail.clone());
+                        timeline.detail_copied = true;
+                    }
+                });
+            });
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new(&event.timestamp).monospace().color(MUTED));
+                if let Some(guid) = &event.process_guid {
+                    ui.label(
+                        RichText::new(format!("Süreç  {guid}"))
+                            .monospace()
+                            .color(MUTED),
+                    );
                 }
             });
-            ui.label(&event.timestamp);
-            if let Some(guid) = &event.process_guid {
-                ui.label(RichText::new(guid).monospace().color(MUTED));
-            }
+            ui.separator();
             egui::ScrollArea::vertical()
                 .id_salt("event-detail")
                 .max_height(95.0)
@@ -906,9 +962,11 @@ fn timeline(ui: &mut egui::Ui, report: &Report, timeline: &mut Timeline) {
             );
             let button = egui::Button::new(label)
                 .selected(timeline.selected == Some(*index))
+                .min_size(Vec2::new(ui.available_width(), 32.0))
                 .truncate();
-            if ui.add_sized([ui.available_width(), 32.0], button).clicked() {
+            if ui.add(button).clicked() {
                 timeline.selected = Some(*index);
+                timeline.detail_copied = false;
             }
         }
     });
