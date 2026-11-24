@@ -10,6 +10,7 @@ use std::{
 
 use anyhow::Result;
 use eframe::egui::{self, Color32, RichText, Stroke, Vec2};
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 use crate::{EventKind, Report, analyze, demo_report, read_recording, save_report};
 
@@ -70,6 +71,8 @@ struct Timeline {
     kind: Option<EventKind>,
     process: Option<String>,
     query: String,
+    from_seconds: String,
+    to_seconds: String,
     selected: Option<usize>,
     detail_copied: bool,
     focus_search: bool,
@@ -80,6 +83,45 @@ impl Timeline {
         self.process = Some(guid.to_owned());
         self.kind = None;
         self.query.clear();
+        self.from_seconds.clear();
+        self.to_seconds.clear();
+    }
+}
+
+struct ElapsedRange {
+    from: Option<f64>,
+    to: Option<f64>,
+}
+
+impl ElapsedRange {
+    fn parse(from: &str, to: &str) -> Result<Self, &'static str> {
+        let seconds = |value: &str| match value.trim() {
+            "" => Ok(None),
+            value => value
+                .replace(',', ".")
+                .parse::<f64>()
+                .ok()
+                .filter(|n| n.is_finite() && *n >= 0.0)
+                .map(Some)
+                .ok_or("Süreyi sıfır veya pozitif bir sayı olarak gir."),
+        };
+        let from = seconds(from)?;
+        let to = seconds(to)?;
+        if let (Some(from), Some(to)) = (from, to)
+            && from > to
+        {
+            return Err("Başlangıç, bitişten sonra olamaz.");
+        }
+        Ok(Self { from, to })
+    }
+
+    fn contains(&self, elapsed: f64) -> bool {
+        self.from.is_none_or(|from| elapsed >= from) && self.to.is_none_or(|to| elapsed <= to)
+    }
+
+    fn includes_timestamp(&self, start: OffsetDateTime, timestamp: &str) -> bool {
+        OffsetDateTime::parse(timestamp, &Rfc3339)
+            .is_ok_and(|instant| self.contains((instant - start).as_seconds_f64()))
     }
 }
 
@@ -941,6 +983,32 @@ fn timeline(ui: &mut egui::Ui, report: &Report, timeline: &mut Timeline, palette
             }
         }
     });
+    ui.horizontal_wrapped(|ui| {
+        ui.label("İlk olaydan itibaren (sn)");
+        reset_scroll |= ui
+            .add(
+                egui::TextEdit::singleline(&mut timeline.from_seconds)
+                    .hint_text("Başlangıç")
+                    .char_limit(24)
+                    .desired_width(84.0),
+            )
+            .changed();
+        reset_scroll |= ui
+            .add(
+                egui::TextEdit::singleline(&mut timeline.to_seconds)
+                    .hint_text("Bitiş")
+                    .char_limit(24)
+                    .desired_width(84.0),
+            )
+            .changed();
+        if (!timeline.from_seconds.is_empty() || !timeline.to_seconds.is_empty())
+            && ui.small_button("Aralığı temizle").clicked()
+        {
+            timeline.from_seconds.clear();
+            timeline.to_seconds.clear();
+            reset_scroll = true;
+        }
+    });
     if reset_scroll {
         timeline.selected = None;
         timeline.detail_copied = false;
@@ -987,7 +1055,7 @@ fn timeline(ui: &mut egui::Ui, report: &Report, timeline: &mut Timeline, palette
                     if ui
                         .small_button("Bu sürecin olayları")
                         .on_hover_text(
-                            "Olay türü ve arama filtrelerini temizleyip bu süreci gösterir.",
+                            "Arama, olay türü ve süre filtrelerini temizleyip bu süreci gösterir.",
                         )
                         .clicked()
                     {
@@ -1005,12 +1073,27 @@ fn timeline(ui: &mut egui::Ui, report: &Report, timeline: &mut Timeline, palette
                 });
         });
     }
+    let range = match ElapsedRange::parse(&timeline.from_seconds, &timeline.to_seconds) {
+        Ok(range) => range,
+        Err(error) => {
+            ui.colored_label(palette.error, error);
+            return;
+        }
+    };
+    let origin = report
+        .events
+        .first()
+        .and_then(|event| OffsetDateTime::parse(&event.timestamp, &Rfc3339).ok())
+        .filter(|_| range.from.is_some() || range.to.is_some());
     let query = timeline.query.trim().to_lowercase();
     let visible: Vec<_> = report
         .events
         .iter()
         .enumerate()
         .filter(|(_, event)| timeline_matches(event, report, timeline, &query))
+        .filter(|(_, event)| {
+            origin.is_none_or(|start| range.includes_timestamp(start, &event.timestamp))
+        })
         .collect();
     ui.label(
         RichText::new(format!("{} / {} olay", visible.len(), report.events.len()))
@@ -1437,6 +1520,8 @@ mod tests {
         let mut view = Timeline {
             kind: Some(EventKind::DnsQuery),
             query: "example.org".into(),
+            from_seconds: "1".into(),
+            to_seconds: "2".into(),
             selected: Some(index),
             ..Timeline::default()
         };
@@ -1445,6 +1530,7 @@ mod tests {
         assert_eq!(view.process.as_deref(), Some(guid));
         assert!(view.kind.is_none());
         assert!(view.query.is_empty());
+        assert!(view.from_seconds.is_empty() && view.to_seconds.is_empty());
         assert_eq!(
             report
                 .events
@@ -1453,5 +1539,30 @@ mod tests {
                 .count(),
             3
         );
+    }
+
+    #[test]
+    fn elapsed_range_accepts_inclusive_offsets_and_validates_input() {
+        let start = OffsetDateTime::parse("2026-11-21T10:00:00Z", &Rfc3339).unwrap();
+        let range = ElapsedRange::parse("0,5", "1.0").unwrap();
+        assert!(!range.includes_timestamp(start, "2026-11-21T10:00:00.499Z"));
+        assert!(range.includes_timestamp(start, "2026-11-21T13:00:00.5+03:00"));
+        assert!(range.includes_timestamp(start, "2026-11-21T10:00:01Z"));
+        assert!(!range.includes_timestamp(start, "2026-11-21T10:00:01.001Z"));
+        assert!(
+            ElapsedRange::parse("", "0")
+                .unwrap()
+                .includes_timestamp(start, "2026-11-21T10:00:00Z")
+        );
+        assert!(ElapsedRange::parse("2", "").unwrap().contains(3.0));
+        for (from, to) in [
+            ("2", "1"),
+            ("-1", ""),
+            ("NaN", ""),
+            ("", "inf"),
+            ("1,2.3", ""),
+        ] {
+            assert!(ElapsedRange::parse(from, to).is_err(), "{from} .. {to}");
+        }
     }
 }
