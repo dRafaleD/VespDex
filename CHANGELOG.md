@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Switch the Windows desktop interface between English and Turkish. The language preference is saved locally.
 - Mark events for review while a recording is open and filter or export the marked set from the timeline.
 - Reverse the desktop timeline order while keeping its filters and selected event. CSV follows the visible order.
 - Show only changed counts in the desktop comparison, with a clear message when the recordings' counts match.

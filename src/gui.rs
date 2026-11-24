@@ -16,10 +16,13 @@ use crate::{EventKind, Report, analyze, demo_report, read_recording, save_report
 
 mod compare;
 mod csv;
+mod language;
+mod preferences;
 mod sysmon;
 
 mod theme;
 
+use language::Language;
 use theme::{Palette, Theme};
 
 #[derive(Default, PartialEq, Eq)]
@@ -34,21 +37,21 @@ enum View {
 }
 
 impl View {
-    fn label(&self) -> &'static str {
+    fn label(&self, lang: Language) -> &'static str {
         match self {
-            Self::Start => "Başlangıç",
-            Self::ChooseProcess => "Başlangıç süreci",
-            Self::Overview => "Genel Bakış",
-            Self::Timeline => "Zaman Çizelgesi",
-            Self::Processes => "Süreçler",
-            Self::Compare => "Karşılaştırma",
+            Self::Start => lang.text("Başlangıç", "Start"),
+            Self::ChooseProcess => lang.text("Başlangıç süreci", "Root process"),
+            Self::Overview => lang.text("Genel Bakış", "Overview"),
+            Self::Timeline => lang.text("Zaman Çizelgesi", "Timeline"),
+            Self::Processes => lang.text("Süreçler", "Processes"),
+            Self::Compare => lang.text("Karşılaştırma", "Compare"),
         }
     }
 
-    fn group(&self) -> &'static str {
+    fn group(&self, lang: Language) -> &'static str {
         match self {
-            Self::Start | Self::ChooseProcess | Self::Overview => "Analiz",
-            Self::Timeline | Self::Processes | Self::Compare => "İnceleme",
+            Self::Start | Self::ChooseProcess | Self::Overview => lang.text("Analiz", "Analysis"),
+            Self::Timeline | Self::Processes | Self::Compare => lang.text("İnceleme", "Review"),
         }
     }
 }
@@ -56,6 +59,7 @@ impl View {
 #[derive(Default)]
 struct Workspace {
     theme: Theme,
+    language: Language,
     mask: Option<egui::TextureHandle>,
     header_mask: Option<egui::TextureHandle>,
     path: Option<PathBuf>,
@@ -103,7 +107,7 @@ struct ElapsedRange {
 }
 
 impl ElapsedRange {
-    fn parse(from: &str, to: &str) -> Result<Self, &'static str> {
+    fn parse(from: &str, to: &str, lang: Language) -> Result<Self, &'static str> {
         let seconds = |value: &str| match value.trim() {
             "" => Ok(None),
             value => value
@@ -112,14 +116,20 @@ impl ElapsedRange {
                 .ok()
                 .filter(|n| n.is_finite() && *n >= 0.0)
                 .map(Some)
-                .ok_or("Süreyi sıfır veya pozitif bir sayı olarak gir."),
+                .ok_or(lang.text(
+                    "Süreyi sıfır veya pozitif bir sayı olarak gir.",
+                    "Enter a number of seconds greater than or equal to zero.",
+                )),
         };
         let from = seconds(from)?;
         let to = seconds(to)?;
         if let (Some(from), Some(to)) = (from, to)
             && from > to
         {
-            return Err("Başlangıç, bitişten sonra olamaz.");
+            return Err(lang.text(
+                "Başlangıç, bitişten sonra olamaz.",
+                "The start time must be at or before the end time.",
+            ));
         }
         Ok(Self { from, to })
     }
@@ -129,14 +139,19 @@ impl ElapsedRange {
     }
 }
 
-fn elapsed_label(elapsed: Duration) -> String {
+fn elapsed_label(elapsed: Duration, lang: Language) -> String {
     let seconds = elapsed.whole_seconds();
     let nanoseconds = elapsed.subsec_nanoseconds();
+    let unit = lang.text("sn", "s");
     if nanoseconds == 0 {
-        return format!("+{seconds} sn");
+        return format!("+{seconds} {unit}");
     }
     let fraction = format!("{nanoseconds:09}");
-    format!("+{seconds},{} sn", fraction.trim_end_matches('0'))
+    let separator = lang.text(",", ".");
+    format!(
+        "+{seconds}{separator}{} {unit}",
+        fraction.trim_end_matches('0')
+    )
 }
 
 enum Loaded {
@@ -234,6 +249,7 @@ pub(crate) fn run(path: Option<PathBuf>, demo: bool) -> Result<()> {
             );
             let mut workspace = Workspace {
                 theme,
+                language: Language::load(),
                 mask: Some(texture),
                 header_mask: Some(header_texture),
                 ..Workspace::default()
@@ -298,8 +314,15 @@ impl Workspace {
     }
 
     fn pick_capture(&mut self, ctx: &egui::Context) {
+        let lang = self.language;
         if let Some(path) = rfd::FileDialog::new()
-            .add_filter("Telemetri kayıtları ve raporlar", &["json", "evtx"])
+            .add_filter(
+                lang.text(
+                    "Telemetri kayıtları ve raporlar",
+                    "Telemetry captures and reports",
+                ),
+                &["json", "evtx"],
+            )
             .pick_file()
         {
             self.load(path, ctx);
@@ -324,8 +347,15 @@ impl Workspace {
     }
 
     fn pick_comparison(&mut self, ctx: &egui::Context) {
+        let lang = self.language;
         if let Some(path) = rfd::FileDialog::new()
-            .add_filter("Davranış raporu veya telemetri JSON", &["json"])
+            .add_filter(
+                lang.text(
+                    "Davranış raporu veya telemetri JSON",
+                    "Behavior report or telemetry JSON",
+                ),
+                &["json"],
+            )
             .pick_file()
         {
             self.start_job(ctx, path, |path, _| {
@@ -359,23 +389,33 @@ impl Workspace {
     }
 
     fn poll(&mut self) {
+        let lang = self.language;
         let Some(pending) = &self.pending else { return };
         let result = match pending.result.try_recv() {
             Ok(result) => result,
             Err(TryRecvError::Empty) => return,
-            Err(TryRecvError::Disconnected) => Err(anyhow::anyhow!(
-                "Analiz işlemi beklenmedik şekilde kapandı."
-            )),
+            Err(TryRecvError::Disconnected) => Err(anyhow::anyhow!(lang.text(
+                "Analiz işlemi beklenmedik şekilde kapandı.",
+                "The analysis worker exited unexpectedly."
+            ))),
         };
         let pending = self.pending.take().expect("finished load is present");
         if pending.cancelled.load(Ordering::Relaxed) {
-            self.message = Some((false, "Kayıt açma iptal edildi.".into()));
+            self.message = Some((
+                false,
+                lang.text(
+                    "Kayıt açma iptal edildi.",
+                    "Opening the recording was cancelled.",
+                )
+                .into(),
+            ));
         } else {
             self.finish_load(pending.path, result);
         }
     }
 
     fn finish_load(&mut self, path: PathBuf, result: Result<Loaded>) {
+        let lang = self.language;
         match result {
             Ok(Loaded::Report(report)) => self.commit_report(Some(path), report),
             Ok(Loaded::Comparison(report)) => {
@@ -398,7 +438,8 @@ impl Workspace {
                     .file_name()
                     .unwrap_or(path.as_os_str())
                     .to_string_lossy();
-                self.message = Some((true, format!("Kayıt açılamadı ({file}): {error:#}")));
+                let label = lang.text("Kayıt açılamadı", "Could not open the recording");
+                self.message = Some((true, format!("{label} ({file}): {error:#}")));
             }
         }
     }
@@ -419,9 +460,13 @@ impl Workspace {
     }
 
     fn load_demo(&mut self) {
+        let lang = self.language;
         match demo_report() {
             Ok(report) => self.commit_report(None, Box::new(report)),
-            Err(error) => self.message = Some((true, format!("Örnek kayıt açılamadı: {error:#}"))),
+            Err(error) => {
+                let label = lang.text("Örnek kayıt açılamadı", "Could not open the example");
+                self.message = Some((true, format!("{label}: {error:#}")));
+            }
         }
     }
 
@@ -434,6 +479,7 @@ impl Workspace {
     }
 
     fn export(&mut self) {
+        let lang = self.language;
         let Some(report) = &self.report else { return };
         let Some(path) = rfd::FileDialog::new()
             .add_filter("JSON", &["json"])
@@ -443,8 +489,21 @@ impl Workspace {
             return;
         };
         self.message = Some(match save_report(report, &path) {
-            Ok(()) => (false, format!("Rapor kaydedildi: {}", path.display())),
-            Err(error) => (true, format!("Rapor kaydedilemedi: {error:#}")),
+            Ok(()) => (
+                false,
+                format!(
+                    "{}: {}",
+                    lang.text("Rapor kaydedildi", "Report saved"),
+                    path.display()
+                ),
+            ),
+            Err(error) => (
+                true,
+                format!(
+                    "{}: {error:#}",
+                    lang.text("Rapor kaydedilemedi", "Could not save the report")
+                ),
+            ),
         });
     }
 }
@@ -461,6 +520,8 @@ impl eframe::App for Workspace {
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let mut selected_theme = self.theme;
+        let lang = self.language;
+        let mut selected_language = lang;
         let palette = self.theme.palette();
         self.poll();
         self.keyboard_actions(ctx);
@@ -510,8 +571,22 @@ impl eframe::App for Workspace {
                                 }
                             })
                             .response
-                            .on_hover_text("Tema");
-                        ui.label(RichText::new("Tema").color(palette.muted));
+                            .on_hover_text(lang.text("Tema", "Theme"));
+                        ui.label(RichText::new(lang.text("Tema", "Theme")).color(palette.muted));
+                        egui::ComboBox::from_id_salt("workspace-language")
+                            .selected_text(lang.label())
+                            .width(78.0)
+                            .show_ui(ui, |ui| {
+                                for language in [Language::Turkish, Language::English] {
+                                    ui.selectable_value(
+                                        &mut selected_language,
+                                        language,
+                                        language.label(),
+                                    );
+                                }
+                            })
+                            .response
+                            .on_hover_text("Dil / Language");
                     });
                 });
             });
@@ -522,10 +597,14 @@ impl eframe::App for Workspace {
                     if let Some(pending) = &self.pending {
                         ui.spinner();
                         if pending.cancelled.load(Ordering::Relaxed) {
-                            ui.label("İptal ediliyor");
+                            ui.label(lang.text("İptal ediliyor", "Cancelling"));
                         } else {
-                            ui.label("Kayıt analiz ediliyor");
-                            if ui.small_button("İptal").on_hover_text("Esc").clicked() {
+                            ui.label(lang.text("Kayıt analiz ediliyor", "Analyzing recording"));
+                            if ui
+                                .small_button(lang.text("İptal", "Cancel"))
+                                .on_hover_text("Esc")
+                                .clicked()
+                            {
                                 pending.cancelled.store(true, Ordering::Relaxed);
                             }
                         }
@@ -541,7 +620,7 @@ impl eframe::App for Workspace {
                     } else {
                         ui.label(RichText::new("●").small().color(palette.accent));
                         ui.label(
-                            RichText::new("Yerel analiz")
+                            RichText::new(lang.text("Yerel analiz", "Local analysis"))
                                 .small()
                                 .monospace()
                                 .color(palette.muted),
@@ -555,14 +634,14 @@ impl eframe::App for Workspace {
             .frame(palette.panel(palette.surface, 12, 20))
             .show(ctx, |ui| {
                 ui.label(
-                    RichText::new("ANALİZ")
+                    RichText::new(lang.text("ANALİZ", "ANALYSIS"))
                         .small()
                         .monospace()
                         .color(palette.muted),
                 );
-                nav(ui, &mut self.view, View::Start, true, palette);
+                nav(ui, &mut self.view, View::Start, true, palette, lang);
                 if !self.candidates.is_empty() {
-                    nav(ui, &mut self.view, View::ChooseProcess, true, palette);
+                    nav(ui, &mut self.view, View::ChooseProcess, true, palette, lang);
                 }
                 nav(
                     ui,
@@ -570,10 +649,11 @@ impl eframe::App for Workspace {
                     View::Overview,
                     self.report.is_some(),
                     palette,
+                    lang,
                 );
                 ui.add_space(18.0);
                 ui.label(
-                    RichText::new("İNCELEME")
+                    RichText::new(lang.text("İNCELEME", "REVIEW"))
                         .small()
                         .monospace()
                         .color(palette.muted),
@@ -584,6 +664,7 @@ impl eframe::App for Workspace {
                     View::Timeline,
                     self.report.is_some(),
                     palette,
+                    lang,
                 );
                 nav(
                     ui,
@@ -591,6 +672,7 @@ impl eframe::App for Workspace {
                     View::Processes,
                     self.report.is_some(),
                     palette,
+                    lang,
                 );
                 nav(
                     ui,
@@ -598,6 +680,7 @@ impl eframe::App for Workspace {
                     View::Compare,
                     self.report.is_some(),
                     palette,
+                    lang,
                 );
             });
 
@@ -607,11 +690,11 @@ impl eframe::App for Workspace {
                 palette.panel(palette.bg, 26, 14).show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(
-                            RichText::new(self.view.group())
+                            RichText::new(self.view.group(lang))
                                 .small()
                                 .color(palette.muted),
                         );
-                        ui.strong(self.view.label());
+                        ui.strong(self.view.label(lang));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             let name = self
                                 .visible_path()
@@ -622,9 +705,9 @@ impl eframe::App for Workspace {
                                         && self.report.is_some()
                                         && self.path.is_none()
                                     {
-                                        "Yerleşik örnek".into()
+                                        lang.text("Yerleşik örnek", "Built-in example").into()
                                     } else {
-                                        "Henüz kayıt yok".into()
+                                        lang.text("Henüz kayıt yok", "No recording open").into()
                                     }
                                 });
                             ui.add(
@@ -654,10 +737,12 @@ impl eframe::App for Workspace {
                         }
                         View::Timeline if self.report.is_some() => {
                             let report = self.report.as_ref().expect("view has a report");
-                            panel_heading(ui, "Olay zaman çizelgesi");
+                            panel_heading(ui, lang.text("Olay zaman çizelgesi", "Event timeline"));
                             let export_status = palette
                                 .panel(palette.surface, 14, 12)
-                                .show(ui, |ui| timeline(ui, report, &mut self.timeline, palette))
+                                .show(ui, |ui| {
+                                    timeline(ui, report, &mut self.timeline, palette, lang)
+                                })
                                 .inner;
                             if let Some(status) = export_status {
                                 self.message = Some(status);
@@ -665,9 +750,9 @@ impl eframe::App for Workspace {
                         }
                         View::Processes if self.report.is_some() => {
                             let report = self.report.as_ref().expect("view has a report");
-                            panel_heading(ui, "Süreçler");
+                            panel_heading(ui, lang.text("Süreçler", "Processes"));
                             if let Some(guid) =
-                                processes(ui, report, &mut self.process_tree_search, palette)
+                                processes(ui, report, &mut self.process_tree_search, palette, lang)
                             {
                                 self.timeline.focus_process(&guid);
                                 self.timeline.selected = None;
@@ -685,8 +770,28 @@ impl eframe::App for Workspace {
             self.theme = selected_theme;
             selected_theme.palette().apply(ctx);
             if let Err(error) = selected_theme.save() {
-                self.message = Some((true, format!("Tema tercihi kaydedilemedi: {error}")));
+                let label = lang.text(
+                    "Tema tercihi kaydedilemedi",
+                    "Could not save the theme preference",
+                );
+                self.message = Some((true, format!("{label}: {error}")));
             }
+            ctx.request_repaint();
+        }
+        if selected_language != lang {
+            self.language = selected_language;
+            self.message = selected_language.save().err().map(|error| {
+                (
+                    true,
+                    format!(
+                        "{}: {error}",
+                        selected_language.text(
+                            "Dil tercihi kaydedilemedi",
+                            "Could not save the language preference"
+                        )
+                    ),
+                )
+            });
             ctx.request_repaint();
         }
     }
@@ -694,18 +799,35 @@ impl eframe::App for Workspace {
 
 impl Workspace {
     fn compare_reports(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, palette: Palette) {
-        panel_heading(ui, "Davranış kayıtlarını karşılaştır");
+        let lang = self.language;
+        panel_heading(
+            ui,
+            lang.text(
+                "Davranış kayıtlarını karşılaştır",
+                "Compare behavior recordings",
+            ),
+        );
         let available = self.pending.is_none();
         ui.horizontal_wrapped(|ui| {
             if ui
-                .add_enabled(available, egui::Button::new("İkinci JSON kaydını aç"))
+                .add_enabled(
+                    available,
+                    egui::Button::new(
+                        lang.text("İkinci JSON kaydını aç", "Open second JSON recording"),
+                    ),
+                )
                 .clicked()
             {
                 self.pick_comparison(ctx);
             }
             if self.comparison.is_some()
                 && ui
-                    .add_enabled(available, egui::Button::new("İkinci kaydı kaldır"))
+                    .add_enabled(
+                        available,
+                        egui::Button::new(
+                            lang.text("İkinci kaydı kaldır", "Remove second recording"),
+                        ),
+                    )
                     .clicked()
             {
                 self.comparison = None;
@@ -713,25 +835,35 @@ impl Workspace {
             }
         });
         let Some(comparison) = &mut self.comparison else {
-            ui.label("Olay sayılarını ve kayıt kapsamını görmek için ikinci bir kayıt seç.");
+            ui.label(lang.text(
+                "Olay sayılarını ve kayıt kapsamını görmek için ikinci bir kayıt seç.",
+                "Select a second recording to compare event counts and coverage.",
+            ));
             return;
         };
         let base = self.report.as_ref().expect("comparison view has a report");
         egui::ScrollArea::vertical()
             .id_salt("comparison")
             .show(ui, |ui| {
-                compare::show(ui, base, self.path.as_deref(), comparison, palette);
+                compare::show(ui, base, self.path.as_deref(), comparison, palette, lang);
             });
     }
 
     fn choose_process(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        let lang = self.language;
         let palette = self.theme.palette();
-        panel_heading(ui, "Başlangıç sürecini seç");
-        ui.label(RichText::new("Sysmon tarafından SHA-256 değeri kaydedilmiş süreçler. Seçilen süreç ve alt süreçleri rapora girer.").color(palette.muted));
+        panel_heading(
+            ui,
+            lang.text("Başlangıç sürecini seç", "Select the root process"),
+        );
+        ui.label(RichText::new(lang.text("Sysmon tarafından SHA-256 değeri kaydedilmiş süreçler. Seçilen süreç ve alt süreçleri rapora girer.", "Sysmon recorded SHA-256 hashes for these processes. The report includes the selected process and its descendants.")).color(palette.muted));
         ui.add_space(8.0);
         ui.add(
             egui::TextEdit::singleline(&mut self.process_search)
-                .hint_text("Dosya adı, süreç GUID veya SHA-256 ile ara")
+                .hint_text(lang.text(
+                    "Dosya adı, süreç GUID veya SHA-256 ile ara",
+                    "Search filename, process GUID or SHA-256",
+                ))
                 .char_limit(160)
                 .desired_width(370.0),
         );
@@ -748,9 +880,10 @@ impl Workspace {
             .collect();
         ui.label(
             RichText::new(format!(
-                "{} / {} süreç",
+                "{} / {} {}",
                 entries.len(),
-                self.candidates.len()
+                self.candidates.len(),
+                lang.text("süreç", "processes"),
             ))
             .color(palette.muted),
         );
@@ -806,12 +939,17 @@ impl Workspace {
     }
 
     fn start(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        let lang = self.language;
         let palette = self.theme.palette();
         ui.vertical_centered(|ui| {
             ui.add_space(20.0);
             ui.vertical(|ui| {
                 ui.set_width(ui.available_width().min(780.0));
-                ui.label(RichText::new("Yeni inceleme").size(32.0).strong());
+                ui.label(
+                    RichText::new(lang.text("Yeni inceleme", "New investigation"))
+                        .size(32.0)
+                        .strong(),
+                );
                 ui.add_space(16.0);
                 let dragging = ctx.input(|input| !input.raw.hovered_files.is_empty());
                 palette
@@ -842,12 +980,18 @@ impl Workspace {
                             ui.vertical(|ui| {
                                 ui.add_space(14.0);
                                 ui.label(
-                                    RichText::new("Telemetri kaydı yükle").size(21.0).strong(),
+                                    RichText::new(lang.text(
+                                        "Telemetri kaydı yükle",
+                                        "Open a telemetry recording",
+                                    ))
+                                    .size(21.0)
+                                    .strong(),
                                 );
                                 ui.label(
-                                    RichText::new(
+                                    RichText::new(lang.text(
                                         "Telemetri JSON veya Sysmon EVTX dosyasını buraya sürükle.",
-                                    )
+                                        "Drop a telemetry JSON or Sysmon EVTX file here.",
+                                    ))
                                     .color(palette.muted),
                                 );
                                 ui.add_space(11.0);
@@ -859,7 +1003,8 @@ impl Workspace {
                 if ui
                     .add_enabled(
                         self.pending.is_none(),
-                        egui::Button::new("Örnek kaydı aç").min_size(Vec2::new(0.0, 32.0)),
+                        egui::Button::new(lang.text("Örnek kaydı aç", "Open example"))
+                            .min_size(Vec2::new(0.0, 32.0)),
                     )
                     .clicked()
                 {
@@ -870,13 +1015,21 @@ impl Workspace {
     }
 
     fn overview(&mut self, ui: &mut egui::Ui) {
+        let lang = self.language;
         let palette = self.theme.palette();
         let mut export = false;
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Davranış özeti").size(26.0).strong());
+            ui.label(
+                RichText::new(lang.text("Davranış özeti", "Behavior overview"))
+                    .size(26.0)
+                    .strong(),
+            );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 export = ui
-                    .button(RichText::new("Raporu kaydet").color(palette.accent_soft))
+                    .button(
+                        RichText::new(lang.text("Raporu kaydet", "Save report"))
+                            .color(palette.accent_soft),
+                    )
                     .on_hover_text("Ctrl+S")
                     .clicked();
             });
@@ -887,14 +1040,19 @@ impl Workspace {
             ui.columns(3, |columns| {
                 metric(
                     &mut columns[0],
-                    "Kayıtlı olay",
+                    lang.text("Kayıtlı olay", "Recorded events"),
                     report.events.len(),
                     palette,
                 );
-                metric(&mut columns[1], "Süreç", report.processes.len(), palette);
+                metric(
+                    &mut columns[1],
+                    lang.text("Süreç", "Processes"),
+                    report.processes.len(),
+                    palette,
+                );
                 metric(
                     &mut columns[2],
-                    "Süreci belirsiz olay",
+                    lang.text("Süreci belirsiz olay", "Unattributed events"),
                     report.unattributed_event_count,
                     palette,
                 );
@@ -902,10 +1060,14 @@ impl Workspace {
             ui.add_space(12.0);
             palette.panel(palette.surface, 16, 14).show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
-                ui.strong("Kayıt bilgileri");
+                ui.strong(lang.text("Kayıt bilgileri", "Recording information"));
                 ui.add_space(8.0);
-                ui.label(format!("Vaka  {}", report.case_id));
-                ui.label(format!("Kaynak  {}", report.source));
+                ui.label(format!("{}  {}", lang.text("Vaka", "Case"), report.case_id));
+                ui.label(format!(
+                    "{}  {}",
+                    lang.text("Kaynak", "Source"),
+                    report.source
+                ));
                 let is_demo = report.source == "synthetic-demo"
                     && report.sample_sha256.bytes().all(|byte| byte == b'0');
                 if !is_demo {
@@ -916,18 +1078,30 @@ impl Workspace {
                     );
                 } else {
                     ui.label(
-                        RichText::new("Sentetik örnek · SHA-256 yer tutucu").color(palette.muted),
+                        RichText::new(lang.text(
+                            "Sentetik örnek · SHA-256 yer tutucu",
+                            "Synthetic example · placeholder SHA-256",
+                        ))
+                        .color(palette.muted),
                     );
                 }
                 if let Some(window) = &report.capture_window {
                     ui.label(
-                        RichText::new(format!("Gözlem  {} – {}", window.start, window.end))
-                            .color(palette.muted),
+                        RichText::new(format!(
+                            "{}  {} – {}",
+                            lang.text("Gözlem", "Observation"),
+                            window.start,
+                            window.end
+                        ))
+                        .color(palette.muted),
                     );
                 }
                 ui.add_space(10.0);
                 if ui
-                    .button(RichText::new("Zaman çizelgesini aç").color(palette.accent_soft))
+                    .button(
+                        RichText::new(lang.text("Zaman çizelgesini aç", "Open timeline"))
+                            .color(palette.accent_soft),
+                    )
                     .clicked()
                 {
                     self.view = View::Timeline;
@@ -936,20 +1110,20 @@ impl Workspace {
             ui.add_space(12.0);
             palette.panel(palette.surface, 16, 14).show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
-                ui.strong("Kayıt kapsamı");
+                ui.strong(lang.text("Kayıt kapsamı", "Recording coverage"));
                 ui.add_space(6.0);
-                ui.label(RichText::new("Toplamanın eksiksiz olup olmadığı bilinmiyor. Sıfır, bu kayıtta ilgili olayın görünmediğini belirtir.").color(palette.muted));
+                ui.label(RichText::new(lang.text("Toplamanın eksiksiz olup olmadığı bilinmiyor. Sıfır, bu kayıtta ilgili olayın görünmediğini belirtir.", "Recording completeness is unknown. A zero means this event type was absent from the recording.")).color(palette.muted));
                 ui.add_space(6.0);
                 for kind in EventKind::ALL {
                     let count = report.coverage.observed_kind_counts[kind.key()];
                     ui.horizontal(|ui| {
-                        ui.label(event_label(kind));
+                        ui.label(event_label(kind, lang));
                         ui.label(RichText::new(count.to_string()).monospace().color(if count > 0 { palette.accent } else { palette.muted }));
                     });
                 }
                 ui.add_space(6.0);
-                ui.label(format!("Başlangıç olayı olmayan süreç: {}", report.coverage.processes_without_start));
-                ui.label(format!("Üst süreci kayıtta olmayan süreç: {}", report.coverage.processes_with_unseen_parent));
+                ui.label(format!("{}: {}", lang.text("Başlangıç olayı olmayan süreç", "Processes without a recorded start"), report.coverage.processes_without_start));
+                ui.label(format!("{}: {}", lang.text("Üst süreci kayıtta olmayan süreç", "Processes whose parent is absent"), report.coverage.processes_with_unseen_parent));
             });
         }
         if export {
@@ -966,9 +1140,14 @@ fn panel_heading(ui: &mut egui::Ui, title: &str) {
 
 fn open_button(ui: &mut egui::Ui, workspace: &mut Workspace, ctx: &egui::Context) {
     let palette = workspace.theme.palette();
-    let button = egui::Button::new(RichText::new("Dosya seç").color(palette.bg).strong())
-        .fill(palette.accent)
-        .min_size(Vec2::new(116.0, 36.0));
+    let lang = workspace.language;
+    let button = egui::Button::new(
+        RichText::new(lang.text("Dosya seç", "Open file"))
+            .color(palette.bg)
+            .strong(),
+    )
+    .fill(palette.accent)
+    .min_size(Vec2::new(116.0, 36.0));
     if ui
         .add_enabled(workspace.pending.is_none(), button)
         .on_hover_text("Ctrl+O")
@@ -978,9 +1157,16 @@ fn open_button(ui: &mut egui::Ui, workspace: &mut Workspace, ctx: &egui::Context
     }
 }
 
-fn nav(ui: &mut egui::Ui, current: &mut View, destination: View, enabled: bool, palette: Palette) {
+fn nav(
+    ui: &mut egui::Ui,
+    current: &mut View,
+    destination: View,
+    enabled: bool,
+    palette: Palette,
+    lang: Language,
+) {
     let selected = *current == destination;
-    let button = egui::Button::new(RichText::new(destination.label()).color(if selected {
+    let button = egui::Button::new(RichText::new(destination.label(lang)).color(if selected {
         palette.accent_soft
     } else {
         palette.muted
@@ -1023,13 +1209,13 @@ fn metric(ui: &mut egui::Ui, label: &str, number: usize, palette: Palette) {
     });
 }
 
-fn event_label(kind: EventKind) -> &'static str {
+fn event_label(kind: EventKind, lang: Language) -> &'static str {
     match kind {
-        EventKind::ProcessStart => "Süreç başlangıcı",
-        EventKind::FileWrite => "Dosya yazma",
-        EventKind::RegistryWrite => "Kayıt defteri",
-        EventKind::NetworkConnection => "Ağ bağlantısı",
-        EventKind::DnsQuery => "DNS sorgusu",
+        EventKind::ProcessStart => lang.text("Süreç başlangıcı", "Process start"),
+        EventKind::FileWrite => lang.text("Dosya yazma", "File write"),
+        EventKind::RegistryWrite => lang.text("Kayıt defteri", "Registry write"),
+        EventKind::NetworkConnection => lang.text("Ağ bağlantısı", "Network connection"),
+        EventKind::DnsQuery => lang.text("DNS sorgusu", "DNS query"),
     }
 }
 
@@ -1038,6 +1224,7 @@ fn timeline(
     report: &Report,
     timeline: &mut Timeline,
     palette: Palette,
+    lang: Language,
 ) -> Option<(bool, String)> {
     let mut reset_scroll = false;
     let initial_order = timeline.newest_first;
@@ -1045,17 +1232,26 @@ fn timeline(
         let previous = timeline.kind;
         egui::ComboBox::from_id_salt("event-kind")
             .width(160.0)
-            .selected_text(timeline.kind.map(event_label).unwrap_or("Tüm olay türleri"))
+            .selected_text(
+                timeline
+                    .kind
+                    .map(|kind| event_label(kind, lang))
+                    .unwrap_or(lang.text("Tüm olay türleri", "All event types")),
+            )
             .show_ui(ui, |ui| {
-                ui.selectable_value(&mut timeline.kind, None, "Tüm olay türleri");
+                ui.selectable_value(
+                    &mut timeline.kind,
+                    None,
+                    lang.text("Tüm olay türleri", "All event types"),
+                );
                 for event in EventKind::ALL {
-                    ui.selectable_value(&mut timeline.kind, Some(event), event_label(event));
+                    ui.selectable_value(&mut timeline.kind, Some(event), event_label(event, lang));
                 }
             });
         reset_scroll |= previous != timeline.kind;
         let search = ui.add(
             egui::TextEdit::singleline(&mut timeline.query)
-                .hint_text("Olay veya süreç ara")
+                .hint_text(lang.text("Olay veya süreç ara", "Search events or processes"))
                 .char_limit(160)
                 .desired_width(204.0),
         );
@@ -1063,7 +1259,11 @@ fn timeline(
             search.request_focus();
         }
         reset_scroll |= search.changed();
-        if !timeline.query.is_empty() && ui.small_button("Aramayı temizle").clicked() {
+        if !timeline.query.is_empty()
+            && ui
+                .small_button(lang.text("Aramayı temizle", "Clear search"))
+                .clicked()
+        {
             timeline.query.clear();
             reset_scroll = true;
         }
@@ -1073,7 +1273,10 @@ fn timeline(
                 .unwrap_or(guid);
             ui.label(RichText::new(name).monospace())
                 .on_hover_text(guid);
-            if ui.small_button("Süreç filtresini kaldır").clicked() {
+            if ui
+                .small_button(lang.text("Süreç filtresini kaldır", "Clear process filter"))
+                .clicked()
+            {
                 timeline.process = None;
                 reset_scroll = true;
             }
@@ -1081,24 +1284,35 @@ fn timeline(
         egui::ComboBox::from_id_salt("event-order")
             .width(120.0)
             .selected_text(if timeline.newest_first {
-                "Yeniden eskiye"
+                lang.text("Yeniden eskiye", "Newest first")
             } else {
-                "Eskiden yeniye"
+                lang.text("Eskiden yeniye", "Oldest first")
             })
             .show_ui(ui, |ui| {
-                ui.selectable_value(&mut timeline.newest_first, false, "Eskiden yeniye");
-                ui.selectable_value(&mut timeline.newest_first, true, "Yeniden eskiye");
+                ui.selectable_value(
+                    &mut timeline.newest_first,
+                    false,
+                    lang.text("Eskiden yeniye", "Oldest first"),
+                );
+                ui.selectable_value(
+                    &mut timeline.newest_first,
+                    true,
+                    lang.text("Yeniden eskiye", "Newest first"),
+                );
             });
         reset_scroll |= ui
-            .checkbox(&mut timeline.only_marked, "Yalnızca işaretliler")
+            .checkbox(
+                &mut timeline.only_marked,
+                lang.text("Yalnızca işaretliler", "Marked only"),
+            )
             .changed();
     });
     ui.horizontal_wrapped(|ui| {
-        ui.label("İlk olaydan itibaren (sn)");
+        ui.label(lang.text("İlk olaydan itibaren (sn)", "Seconds since the first event"));
         reset_scroll |= ui
             .add(
                 egui::TextEdit::singleline(&mut timeline.from_seconds)
-                    .hint_text("Başlangıç")
+                    .hint_text(lang.text("Başlangıç", "Start"))
                     .char_limit(24)
                     .desired_width(84.0),
             )
@@ -1106,13 +1320,15 @@ fn timeline(
         reset_scroll |= ui
             .add(
                 egui::TextEdit::singleline(&mut timeline.to_seconds)
-                    .hint_text("Bitiş")
+                    .hint_text(lang.text("Bitiş", "End"))
                     .char_limit(24)
                     .desired_width(84.0),
             )
             .changed();
         if (!timeline.from_seconds.is_empty() || !timeline.to_seconds.is_empty())
-            && ui.small_button("Aralığı temizle").clicked()
+            && ui
+                .small_button(lang.text("Aralığı temizle", "Clear time range"))
+                .clicked()
         {
             timeline.from_seconds.clear();
             timeline.to_seconds.clear();
@@ -1120,9 +1336,13 @@ fn timeline(
         }
         if let Some(last) = report.events.last() {
             ui.label(
-                RichText::new(format!("Son olay {}", elapsed_label(last.elapsed)))
-                    .small()
-                    .color(palette.muted),
+                RichText::new(format!(
+                    "{} {}",
+                    lang.text("Son olay", "Last event"),
+                    elapsed_label(last.elapsed, lang)
+                ))
+                .small()
+                .color(palette.muted),
             );
         }
     });
@@ -1130,7 +1350,7 @@ fn timeline(
         timeline.selected = None;
         timeline.detail_copied = false;
     }
-    let range = match ElapsedRange::parse(&timeline.from_seconds, &timeline.to_seconds) {
+    let range = match ElapsedRange::parse(&timeline.from_seconds, &timeline.to_seconds, lang) {
         Ok(range) => range,
         Err(error) => {
             ui.colored_label(palette.error, error);
@@ -1156,10 +1376,10 @@ fn timeline(
             let row = ui
                 .horizontal_wrapped(|ui| {
                     let previous = ui
-                        .add_enabled(row > 0, egui::Button::new("Önceki"))
+                        .add_enabled(row > 0, egui::Button::new(lang.text("Önceki", "Previous")))
                         .clicked();
                     let next = ui
-                        .add_enabled(row + 1 < visible.len(), egui::Button::new("Sonraki"))
+                        .add_enabled(row + 1 < visible.len(), egui::Button::new(lang.text("Sonraki", "Next")))
                         .clicked();
                     let selected = if previous {
                         row - 1
@@ -1183,13 +1403,13 @@ fn timeline(
                 .inner;
             let (index, event) = visible[row];
             ui.horizontal(|ui| {
-                ui.strong(event_label(event.kind));
+                ui.strong(event_label(event.kind, lang));
                 let marked = timeline.marked.contains(&index);
                 if ui
                     .small_button(if marked {
-                        "İşareti kaldır"
+                        lang.text("İşareti kaldır", "Unmark")
                     } else {
-                        "İşaretle"
+                        lang.text("İşaretle", "Mark for review")
                     })
                     .clicked()
                 {
@@ -1205,14 +1425,14 @@ fn timeline(
                     }
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.small_button("Kapat").clicked() {
+                    if ui.small_button(lang.text("Kapat", "Close")).clicked() {
                         timeline.selected = None;
                         timeline.detail_copied = false;
                     }
                     let copy_label = if timeline.detail_copied {
-                        "Kopyalandı"
+                        lang.text("Kopyalandı", "Copied")
                     } else {
-                        "Ayrıntıyı kopyala"
+                        lang.text("Ayrıntıyı kopyala", "Copy details")
                     };
                     if ui.small_button(copy_label).clicked() {
                         ui.ctx().copy_text(event.detail.clone());
@@ -1221,7 +1441,7 @@ fn timeline(
                 });
             });
             ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new(elapsed_label(event.elapsed)).monospace());
+                ui.label(RichText::new(elapsed_label(event.elapsed, lang)).monospace());
                 ui.label(
                     RichText::new(&event.timestamp)
                         .monospace()
@@ -1233,14 +1453,14 @@ fn timeline(
                         ui.label(RichText::new(name).strong()).on_hover_text(image);
                     }
                     ui.label(
-                        RichText::new(format!("Süreç  {guid}"))
+                        RichText::new(format!("{}  {guid}", lang.text("Süreç", "Process")))
                             .monospace()
                             .color(palette.muted),
                     );
                     if ui
-                        .small_button("Bu sürecin olayları")
+                        .small_button(lang.text("Bu sürecin olayları", "Show this process's events"))
                         .on_hover_text(
-                            "Arama, olay türü ve süre filtrelerini temizleyip bu süreci gösterir.",
+                            lang.text("Arama, olay türü ve süre filtrelerini temizleyip bu süreci gösterir.", "Clears search, event type, time range, and marked-only filters to show this process."),
                         )
                         .clicked()
                     {
@@ -1273,34 +1493,51 @@ fn timeline(
     let mut export = false;
     ui.horizontal(|ui| {
         ui.label(
-            RichText::new(format!("{} / {} olay", visible.len(), report.events.len()))
-                .small()
-                .monospace()
-                .color(palette.muted),
+            RichText::new(format!(
+                "{} / {} {}",
+                visible.len(),
+                report.events.len(),
+                lang.text("olay", "events")
+            ))
+            .small()
+            .monospace()
+            .color(palette.muted),
         );
         if !timeline.marked.is_empty() {
             ui.label(
-                RichText::new(format!("{} işaretli", timeline.marked.len()))
-                    .small()
-                    .color(palette.muted),
+                RichText::new(format!(
+                    "{} {}",
+                    timeline.marked.len(),
+                    lang.text("işaretli", "marked")
+                ))
+                .small()
+                .color(palette.muted),
             );
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             export = ui
                 .add_enabled(
                     !visible.is_empty(),
-                    egui::Button::new("Görünen olayları CSV kaydet"),
+                    egui::Button::new(
+                        lang.text("Görünen olayları CSV kaydet", "Save visible events as CSV"),
+                    ),
                 )
-                .on_hover_text("Etkin filtrelere uyan olayların tamamını kaydeder.")
+                .on_hover_text(lang.text(
+                    "Etkin filtrelere uyan olayların tamamını kaydeder.",
+                    "Exports all events that match the active filters.",
+                ))
                 .clicked();
         });
     });
     if visible.is_empty() {
-        ui.label("Bu filtreyle eşleşen olay yok.");
+        ui.label(lang.text(
+            "Bu filtreyle eşleşen olay yok.",
+            "No events match these filters.",
+        ));
         return None;
     }
     let status = if export {
-        csv::export(report, visible.iter().map(|(_, event)| *event))
+        csv::export(report, visible.iter().map(|(_, event)| *event), lang)
     } else {
         None
     };
@@ -1321,7 +1558,7 @@ fn timeline(
     scroll.show_rows(ui, ROW_HEIGHT, visible.len(), |ui, rows| {
         for (index, event) in &visible[rows] {
             let mut label = egui::text::LayoutJob::default();
-            let elapsed = elapsed_label(event.elapsed);
+            let elapsed = elapsed_label(event.elapsed, lang);
             let prefix = if timeline.marked.contains(index) {
                 format!("★  {elapsed}")
             } else {
@@ -1346,7 +1583,7 @@ fn timeline(
                 },
             );
             label.append(
-                event_label(event.kind),
+                event_label(event.kind, lang),
                 14.0,
                 egui::TextFormat {
                     font_id: egui::FontId::proportional(13.0),
@@ -1432,10 +1669,14 @@ fn processes(
     report: &Report,
     search: &mut String,
     palette: Palette,
+    lang: Language,
 ) -> Option<String> {
     let mut filter = None;
     if report.processes.is_empty() {
-        ui.label("Bu kayıtta süreç kimliği bulunamadı.");
+        ui.label(lang.text(
+            "Bu kayıtta süreç kimliği bulunamadı.",
+            "No processes could be identified in this recording.",
+        ));
         return None;
     }
     let mut reset_scroll = false;
@@ -1443,12 +1684,19 @@ fn processes(
         reset_scroll = ui
             .add(
                 egui::TextEdit::singleline(search)
-                    .hint_text("Dosya adı, yol veya süreç GUID ile ara")
+                    .hint_text(lang.text(
+                        "Dosya adı, yol veya süreç GUID ile ara",
+                        "Search by file name, path, or process GUID",
+                    ))
                     .char_limit(160)
                     .desired_width(310.0),
             )
             .changed();
-        if !search.is_empty() && ui.small_button("Aramayı temizle").clicked() {
+        if !search.is_empty()
+            && ui
+                .small_button(lang.text("Aramayı temizle", "Clear search"))
+                .clicked()
+        {
             search.clear();
             reset_scroll = true;
         }
@@ -1458,13 +1706,21 @@ fn processes(
     let matches = matching_processes(report, &query);
     let visible = visible_processes(report, &matches);
     ui.label(
-        RichText::new(format!("{} / {} süreç", matches.len(), tree.len()))
-            .small()
-            .monospace()
-            .color(palette.muted),
+        RichText::new(format!(
+            "{} / {} {}",
+            matches.len(),
+            tree.len(),
+            lang.text("süreç", "processes")
+        ))
+        .small()
+        .monospace()
+        .color(palette.muted),
     );
     if matches.is_empty() {
-        ui.label("Bu aramayla eşleşen süreç yok.");
+        ui.label(lang.text(
+            "Bu aramayla eşleşen süreç yok.",
+            "No processes match this search.",
+        ));
         return None;
     }
     let mut scroll = egui::ScrollArea::vertical().id_salt("process-list");
@@ -1486,29 +1742,32 @@ fn processes(
                             if depth > 0 {
                                 ui.colored_label(palette.accent, "└");
                             }
-                            ui.strong(
-                                process
-                                    .image
-                                    .as_deref()
-                                    .unwrap_or("Yürütülebilir dosya bilinmiyor"),
-                            );
+                            ui.strong(process.image.as_deref().unwrap_or(
+                                lang.text("Yürütülebilir dosya bilinmiyor", "Unknown executable"),
+                            ));
                             if !matches.contains(guid) {
                                 ui.label(
-                                    RichText::new("Üst süreç bağlamı")
+                                    RichText::new(lang.text("Üst süreç bağlamı", "Ancestor"))
                                         .small()
                                         .color(palette.muted),
                                 );
                             }
-                            if ui.small_button("Olayları göster").clicked() {
+                            if ui
+                                .small_button(lang.text("Olayları göster", "Show events"))
+                                .clicked()
+                            {
                                 filter = Some(guid.to_owned());
                             }
                         });
                         ui.label(RichText::new(guid).monospace().color(palette.muted));
                         if let Some(parent) = &process.parent_process_guid {
                             let title = if report.processes.contains_key(parent) {
-                                "Üst süreç"
+                                lang.text("Üst süreç", "Parent process")
                             } else {
-                                "Üst süreç kayıtta yok"
+                                lang.text(
+                                    "Üst süreç kayıtta yok",
+                                    "Parent process absent from recording",
+                                )
                             };
                             ui.label(
                                 RichText::new(format!("{title}  {parent}"))
@@ -1519,14 +1778,17 @@ fn processes(
                         ui.horizontal_wrapped(|ui| {
                             for event in EventKind::ALL {
                                 if let Some(count) = process.counts.get(event.key()) {
-                                    ui.label(format!("{} {count}", event_label(event)));
+                                    ui.label(format!("{} {count}", event_label(event, lang)));
                                 }
                             }
                         });
                         if depth > 6 {
                             ui.label(
-                                RichText::new(format!("Ağaç derinliği {depth}"))
-                                    .color(palette.muted),
+                                RichText::new(format!(
+                                    "{} {depth}",
+                                    lang.text("Ağaç derinliği", "Tree depth")
+                                ))
+                                .color(palette.muted),
                             );
                         }
                     });
@@ -1836,9 +2098,15 @@ mod tests {
         capture["events"][3]["timestamp"] = "2026-11-21T13:00:00.5+03:00".into();
         let report = analyze(serde_json::from_value(capture).unwrap()).unwrap();
         assert_eq!(report.events[1].elapsed, Duration::milliseconds(500));
-        assert_eq!(elapsed_label(report.events[1].elapsed), "+0,5 sn");
-        assert_eq!(elapsed_label(Duration::nanoseconds(1)), "+0,000000001 sn");
-        let range = ElapsedRange::parse("0,5", "1.0").unwrap();
+        assert_eq!(
+            elapsed_label(report.events[1].elapsed, Language::Turkish),
+            "+0,5 sn"
+        );
+        assert_eq!(
+            elapsed_label(Duration::nanoseconds(1), Language::Turkish),
+            "+0,000000001 sn"
+        );
+        let range = ElapsedRange::parse("0,5", "1.0", Language::Turkish).unwrap();
         let visible = visible_timeline_events(&report, &Timeline::default(), &range);
         assert_eq!(
             visible.iter().map(|(index, _)| *index).collect::<Vec<_>>(),
@@ -1846,8 +2114,16 @@ mod tests {
         );
         assert!(!range.contains(0.499));
         assert!(!range.contains(1.001));
-        assert!(ElapsedRange::parse("", "0").unwrap().contains(0.0));
-        assert!(ElapsedRange::parse("2", "").unwrap().contains(3.0));
+        assert!(
+            ElapsedRange::parse("", "0", Language::Turkish)
+                .unwrap()
+                .contains(0.0)
+        );
+        assert!(
+            ElapsedRange::parse("2", "", Language::Turkish)
+                .unwrap()
+                .contains(3.0)
+        );
         for (from, to) in [
             ("2", "1"),
             ("-1", ""),
@@ -1855,8 +2131,58 @@ mod tests {
             ("", "inf"),
             ("1,2.3", ""),
         ] {
-            assert!(ElapsedRange::parse(from, to).is_err(), "{from} .. {to}");
+            assert!(
+                ElapsedRange::parse(from, to, Language::Turkish).is_err(),
+                "{from} .. {to}"
+            );
         }
+    }
+
+    #[test]
+    fn english_timeline_translates_actions_events_and_elapsed_time() {
+        assert_eq!(View::Overview.label(Language::English), "Overview");
+        assert_eq!(View::Compare.label(Language::English), "Compare");
+        let report = demo_report().unwrap();
+        let ctx = egui::Context::default();
+        let mut state = Timeline {
+            selected: Some(3),
+            ..Timeline::default()
+        };
+        let frame = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                timeline(
+                    ui,
+                    &report,
+                    &mut state,
+                    Theme::Dark.palette(),
+                    Language::English,
+                );
+            });
+        });
+        let text: Vec<_> = frame
+            .shapes
+            .iter()
+            .filter_map(|shape| match &shape.shape {
+                egui::epaint::Shape::Text(label) => Some(label.galley.text()),
+                _ => None,
+            })
+            .collect();
+        for label in [
+            "Mark for review",
+            "Save visible events as CSV",
+            "DNS query",
+            "+2 s",
+        ] {
+            assert!(text.contains(&label), "{label} is missing");
+        }
+        assert_eq!(
+            elapsed_label(Duration::milliseconds(500), Language::English),
+            "+0.5 s"
+        );
+        assert_eq!(
+            ElapsedRange::parse("2", "1", Language::English).err(),
+            Some("The start time must be at or before the end time.")
+        );
     }
 
     #[test]
@@ -1882,7 +2208,7 @@ mod tests {
                 },
                 |ctx| {
                     egui::CentralPanel::default().show(ctx, |ui| {
-                        timeline(ui, &report, state, Theme::Dark.palette());
+                        timeline(ui, &report, state, Theme::Dark.palette(), Language::Turkish);
                     });
                 },
             )
@@ -1936,7 +2262,7 @@ mod tests {
         assert_eq!(state.marked, HashSet::from([3]));
         click(&mut state, "Yalnızca işaretliler");
         assert!(state.only_marked);
-        let range = ElapsedRange::parse("1", "").unwrap();
+        let range = ElapsedRange::parse("1", "", Language::Turkish).unwrap();
         let rows = visible_timeline_events(&report, &state, &range);
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].0, 3);

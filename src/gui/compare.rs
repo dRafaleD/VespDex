@@ -7,7 +7,7 @@ use crate::{
     comparison::{Identity, identity},
 };
 
-use super::{Comparison, Palette, elapsed_label, event_label, process_image};
+use super::{Comparison, Language, Palette, elapsed_label, event_label, process_image};
 
 pub(super) struct EventReview {
     kind: EventKind,
@@ -20,36 +20,52 @@ pub(super) fn show(
     base_path: Option<&Path>,
     comparison: &mut Comparison,
     palette: Palette,
+    lang: Language,
 ) {
     let other = &comparison.report;
     let file_identity = match identity(base, other) {
-        Identity::Same => "Dosya SHA-256 değerleri eşleşiyor.",
-        Identity::Different => "Dosya SHA-256 değerleri farklı.",
-        Identity::Unknown => {
-            "Dosya kimliği belirsiz. Kayıtlardan biri yer tutucu SHA-256 kullanıyor."
-        }
+        Identity::Same => lang.text(
+            "Dosya SHA-256 değerleri eşleşiyor.",
+            "File SHA-256 hashes match.",
+        ),
+        Identity::Different => lang.text(
+            "Dosya SHA-256 değerleri farklı.",
+            "File SHA-256 hashes differ.",
+        ),
+        Identity::Unknown => lang.text(
+            "Dosya kimliği belirsiz. Kayıtlardan biri yer tutucu SHA-256 kullanıyor.",
+            "File identity is unknown. A recording uses a placeholder SHA-256.",
+        ),
     };
     ui.strong(file_identity);
     ui.columns(2, |columns| {
-        recording_card(&mut columns[0], "1. Açık kayıt", base_path, base, palette);
+        recording_card(
+            &mut columns[0],
+            lang.text("1. Açık kayıt", "1. Open recording"),
+            base_path,
+            base,
+            palette,
+            lang,
+        );
         recording_card(
             &mut columns[1],
-            "2. Karşılaştırılan kayıt",
+            lang.text("2. Karşılaştırılan kayıt", "2. Comparison recording"),
             Some(&comparison.path),
             other,
             palette,
+            lang,
         );
     });
     ui.add_space(8.0);
     let mut focus_events = false;
     palette.panel(palette.surface, 12, 10).show(ui, |ui| {
         ui.set_min_width(ui.available_width());
-        ui.strong("Olay ve kapsam farkları");
+        ui.strong(lang.text("Olay ve kapsam farkları", "Event and coverage differences"));
         ui.label(
-            RichText::new("Sayım farkları kaydedilen olayları gösterir. Gözlem aralığı ve Sysmon ayarları sonuçları etkileyebilir.")
+            RichText::new(lang.text("Sayım farkları kaydedilen olayları gösterir. Gözlem aralığı ve Sysmon ayarları sonuçları etkileyebilir.", "Counts reflect recorded events. The observation window and Sysmon settings can affect the results."))
                 .color(palette.muted),
         );
-        ui.checkbox(&mut comparison.changed_only, "Yalnızca sayısı değişen satırlar");
+        ui.checkbox(&mut comparison.changed_only, lang.text("Yalnızca sayısı değişen satırlar", "Show changed counts only"));
         if comparison.changed_only
             && comparison.event_review.as_ref().is_some_and(|review| {
                 let key = review.kind.key();
@@ -59,10 +75,10 @@ pub(super) fn show(
             comparison.event_review = None;
         }
         let summaries = [
-            ("Süreç", base.processes.len(), other.processes.len()),
-            ("Süreci belirsiz olay", base.unattributed_event_count, other.unattributed_event_count),
-            ("Başlangıcı görünmeyen süreç", base.coverage.processes_without_start, other.coverage.processes_without_start),
-            ("Üst süreci kayıtta yok", base.coverage.processes_with_unseen_parent, other.coverage.processes_with_unseen_parent),
+            (lang.text("Süreç", "Processes"), base.processes.len(), other.processes.len()),
+            (lang.text("Süreci belirsiz olay", "Unattributed events"), base.unattributed_event_count, other.unattributed_event_count),
+            (lang.text("Başlangıcı görünmeyen süreç", "Processes without a recorded start"), base.coverage.processes_without_start, other.coverage.processes_without_start),
+            (lang.text("Üst süreci kayıtta yok", "Processes whose parent is absent"), base.coverage.processes_with_unseen_parent, other.coverage.processes_with_unseen_parent),
         ];
         let event_rows = EventKind::ALL
             .into_iter()
@@ -77,7 +93,7 @@ pub(super) fn show(
             .filter(|(_, left, right)| !comparison.changed_only || left != right)
             .collect::<Vec<_>>();
         if comparison.changed_only && event_rows.is_empty() && summaries.is_empty() {
-            ui.label("Bu kayıtlardaki olay ve süreç sayıları aynı.");
+            ui.label(lang.text("Bu kayıtlardaki olay ve süreç sayıları aynı.", "The event and process counts match."));
             return;
         }
         egui::Grid::new("comparison-counts")
@@ -85,18 +101,18 @@ pub(super) fn show(
             .spacing(Vec2::new(16.0, 6.0))
             .striped(true)
             .show(ui, |ui| {
-                for label in ["Ölçüm", "1. kayıt", "2. kayıt", "Fark"] {
+                for label in [lang.text("Ölçüm", "Metric"), lang.text("1. kayıt", "Recording 1"), lang.text("2. kayıt", "Recording 2"), lang.text("Fark", "Delta")] {
                     ui.strong(label);
                 }
                 ui.end_row();
                 if !comparison.changed_only || base.events.len() != other.events.len() {
-                    count_row(ui, "Toplam olay", base.events.len(), other.events.len(), palette);
+                    count_row(ui, lang.text("Toplam olay", "Total events"), base.events.len(), other.events.len(), palette);
                 }
                 for (kind, left, right) in event_rows {
                     let active = comparison.event_review.as_ref().is_some_and(|review| review.kind == kind);
                     if ui
-                        .selectable_label(active, event_label(kind))
-                        .on_hover_text("Bu türdeki olayları iki kayıtta incele")
+                        .selectable_label(active, event_label(kind, lang))
+                        .on_hover_text(lang.text("Bu türdeki olayları iki kayıtta incele", "Inspect this event type in both recordings"))
                         .clicked()
                     {
                         comparison.event_review = (!active).then_some(EventReview {
@@ -119,7 +135,11 @@ pub(super) fn show(
     });
     if let Some(review) = &mut comparison.event_review {
         ui.add_space(8.0);
-        let heading = ui.heading(format!("Olaylar · {}", event_label(review.kind)));
+        let heading = ui.heading(format!(
+            "{} · {}",
+            lang.text("Olaylar", "Events"),
+            event_label(review.kind, lang)
+        ));
         if focus_events {
             heading.scroll_to_me(Some(egui::Align::Min));
         }
@@ -135,6 +155,7 @@ pub(super) fn show(
                         review.kind,
                         &mut review.selected[side],
                         palette,
+                        lang,
                     );
                 });
             }
@@ -148,6 +169,7 @@ fn recording_card(
     path: Option<&Path>,
     report: &Report,
     palette: Palette,
+    lang: Language,
 ) {
     palette.panel(palette.surface, 12, 10).show(ui, |ui| {
         ui.set_min_width(ui.available_width());
@@ -155,12 +177,12 @@ fn recording_card(
         let filename = path
             .and_then(Path::file_name)
             .map(|name| name.to_string_lossy())
-            .unwrap_or_else(|| "Yerleşik örnek".into());
+            .unwrap_or_else(|| lang.text("Yerleşik örnek", "Built-in example").into());
         ui.add(egui::Label::new(filename.as_ref()).truncate())
             .on_hover_text(filename);
         for value in [
-            format!("Vaka  {}", report.case_id),
-            format!("Kaynak  {}", report.source),
+            format!("{}  {}", lang.text("Vaka", "Case"), report.case_id),
+            format!("{}  {}", lang.text("Kaynak", "Source"), report.source),
             format!("SHA-256  {}", report.sample_sha256),
         ] {
             ui.add(
@@ -175,16 +197,23 @@ fn recording_card(
             .on_hover_text(&value);
         }
         if let Some(window) = &report.capture_window {
-            ui.label(RichText::new("Gözlem aralığı").small().strong());
+            ui.label(
+                RichText::new(lang.text("Gözlem aralığı", "Observation window"))
+                    .small()
+                    .strong(),
+            );
             for timestamp in [&window.start, &window.end] {
                 ui.add(egui::Label::new(RichText::new(timestamp).small().monospace()).truncate())
                     .on_hover_text(timestamp);
             }
         } else {
             ui.label(
-                RichText::new("Gözlem aralığı belirtilmemiş")
-                    .small()
-                    .color(palette.muted),
+                RichText::new(lang.text(
+                    "Gözlem aralığı belirtilmemiş",
+                    "Observation window unspecified",
+                ))
+                .small()
+                .color(palette.muted),
             );
         }
     });
@@ -220,6 +249,7 @@ fn event_list(
     kind: EventKind,
     selected: &mut Option<usize>,
     palette: Palette,
+    lang: Language,
 ) {
     let events: Vec<_> = report
         .events
@@ -229,9 +259,18 @@ fn event_list(
         .collect();
     palette.panel(palette.surface, 10, 8).show(ui, |ui| {
         ui.set_min_width(ui.available_width());
-        ui.strong(format!("{}. kayıt · {} olay", side + 1, events.len()));
+        ui.strong(match lang {
+            Language::Turkish => format!("{}. kayıt · {} olay", side + 1, events.len()),
+            Language::English => format!("Recording {} · {} events", side + 1, events.len()),
+        });
         if events.is_empty() {
-            ui.label(RichText::new("Bu türde kayıtlı olay yok.").color(palette.muted));
+            ui.label(
+                RichText::new(lang.text(
+                    "Bu türde kayıtlı olay yok.",
+                    "No events of this type were recorded.",
+                ))
+                .color(palette.muted),
+            );
             return;
         }
         egui::ScrollArea::vertical()
@@ -239,7 +278,7 @@ fn event_list(
             .max_height(180.0)
             .show_rows(ui, 28.0, events.len(), |ui, rows| {
                 for (index, event) in events[rows].iter().copied() {
-                    let label = format!("{}  {}", elapsed_label(event.elapsed), event.detail);
+                    let label = format!("{}  {}", elapsed_label(event.elapsed, lang), event.detail);
                     let button = egui::Button::new(label)
                         .selected(*selected == Some(index))
                         .min_size(Vec2::new(ui.available_width(), 28.0))
@@ -313,6 +352,7 @@ mod tests {
                             None,
                             comparison,
                             crate::gui::Theme::Dark.palette(),
+                            Language::Turkish,
                         );
                     });
                 },

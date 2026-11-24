@@ -1,9 +1,6 @@
-use std::{
-    fs::{self, File},
-    io::{Read, Write},
-    path::{Path, PathBuf},
-};
+use std::path::Path;
 
+use super::preferences;
 use anyhow::{Context, Result};
 use eframe::egui::{self, Color32, Stroke};
 
@@ -52,24 +49,19 @@ impl Theme {
     }
 
     pub fn load() -> Self {
-        preference_path()
+        preferences::path("theme")
             .map(|path| Self::read(&path))
             .unwrap_or_default()
     }
 
     pub fn save(self) -> Result<()> {
-        self.write(&preference_path().context("LOCALAPPDATA is unavailable")?)
+        self.write(&preferences::path("theme").context("LOCALAPPDATA is unavailable")?)
     }
 
     fn read(path: &Path) -> Self {
-        let mut value = String::new();
-        if File::open(path)
-            .and_then(|file| file.take(64).read_to_string(&mut value))
-            .is_err()
-            || value.len() == 64
-        {
+        let Some(value) = preferences::read(path) else {
             return Self::default();
-        }
+        };
         Self::ALL
             .into_iter()
             .find(|theme| theme.key() == value.trim())
@@ -77,12 +69,7 @@ impl Theme {
     }
 
     fn write(self, path: &Path) -> Result<()> {
-        let folder = path.parent().context("theme preference has no directory")?;
-        fs::create_dir_all(folder)?;
-        let mut file = tempfile::NamedTempFile::new_in(folder)?;
-        writeln!(file, "{}", self.key())?;
-        file.persist(path)?;
-        Ok(())
+        preferences::write(path, self.key())
     }
 
     pub fn palette(self) -> Palette {
@@ -168,15 +155,10 @@ impl Palette {
     }
 }
 
-fn preference_path() -> Option<PathBuf> {
-    let base = PathBuf::from(std::env::var_os("LOCALAPPDATA")?);
-    base.is_absolute()
-        .then(|| base.join("VespDex").join("theme"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn replaces_an_existing_preference_and_defaults_on_invalid_input() {

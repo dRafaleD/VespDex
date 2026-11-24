@@ -40,7 +40,7 @@ cd VespDex
 cargo install --path . --locked
 ```
 
-On Windows, run `vespdex --gui`. Select **Tema** in the header to change the theme. The preference is stored locally for the Windows account.
+On Windows, run `vespdex --gui`. Use the header language menu to choose **English** or **Türkçe**. The language and theme preferences are stored locally for the Windows account.
 
 ## Usage
 

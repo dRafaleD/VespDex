@@ -40,7 +40,7 @@ cd VespDex
 cargo install --path . --locked
 ```
 
-Windows’ta `vespdex --gui` ile aç. Sağ üstteki **Tema** menüsü görünümü değiştirir. Tercih Windows hesabında yerel olarak saklanır.
+Windows’ta `vespdex --gui` ile aç. Üst menüden **Türkçe** veya **English** seçebilir ve temayı değiştirebilirsin. Dil ve tema tercihleri Windows hesabında yerel olarak saklanır.
 
 ## Kullanım
 

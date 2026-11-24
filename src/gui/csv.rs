@@ -1,10 +1,11 @@
 use crate::{Event, Report, save_report_bytes};
 
-use super::process_image;
+use super::{Language, process_image};
 
 pub(super) fn export<'a>(
     report: &Report,
     events: impl Iterator<Item = &'a Event>,
+    lang: Language,
 ) -> Option<(bool, String)> {
     let path = rfd::FileDialog::new()
         .add_filter("CSV", &["csv"])
@@ -12,8 +13,21 @@ pub(super) fn export<'a>(
         .save_file()?;
     let bytes = encode(report, events);
     Some(match save_report_bytes(bytes.as_bytes(), &path) {
-        Ok(()) => (false, format!("CSV kaydedildi: {}", path.display())),
-        Err(error) => (true, format!("CSV kaydedilemedi: {error:#}")),
+        Ok(()) => (
+            false,
+            format!(
+                "{}: {}",
+                lang.text("CSV kaydedildi", "CSV saved"),
+                path.display()
+            ),
+        ),
+        Err(error) => (
+            true,
+            format!(
+                "{}: {error:#}",
+                lang.text("CSV kaydedilemedi", "Could not save the CSV")
+            ),
+        ),
     })
 }
 
@@ -77,7 +91,7 @@ mod tests {
             query: "demo-worker.exe".into(),
             ..Timeline::default()
         };
-        let range = ElapsedRange::parse("0,5", "1").unwrap();
+        let range = ElapsedRange::parse("0,5", "1", Language::Turkish).unwrap();
         let visible = visible_timeline_events(&report, &timeline, &range);
         let csv = encode(&report, visible.into_iter().map(|(_, event)| event));
         assert_eq!(csv.lines().count(), 2);
@@ -90,7 +104,7 @@ mod tests {
             only_marked: true,
             ..Timeline::default()
         };
-        let all_time = ElapsedRange::parse("", "").unwrap();
+        let all_time = ElapsedRange::parse("", "", Language::Turkish).unwrap();
         let visible = visible_timeline_events(&report, &marked, &all_time);
         assert_eq!(
             encode(&report, visible.into_iter().map(|(_, event)| event)),
