@@ -130,6 +130,9 @@ impl Palette {
         visuals.faint_bg_color = self.surface;
         visuals.selection.bg_fill = self.active;
         visuals.selection.stroke = Stroke::new(1.0_f32, self.line_hot);
+        visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, self.line);
+        visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, self.muted);
+        visuals.widgets.noninteractive.bg_fill = self.surface;
         for widgets in [
             &mut visuals.widgets.inactive,
             &mut visuals.widgets.hovered,
@@ -144,6 +147,17 @@ impl Palette {
         visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, self.line_hot);
         visuals.widgets.active.bg_stroke = Stroke::new(1.0_f32, self.accent);
         ctx.set_visuals(visuals);
+        ctx.style_mut(|style| {
+            style.spacing.item_spacing = egui::vec2(8.0, 6.0);
+            style.spacing.button_padding = egui::vec2(10.0, 5.0);
+            style.spacing.interact_size.y = 26.0;
+            style
+                .text_styles
+                .insert(egui::TextStyle::Body, egui::FontId::proportional(14.0));
+            style
+                .text_styles
+                .insert(egui::TextStyle::Button, egui::FontId::proportional(14.0));
+        });
     }
 
     pub fn panel(self, fill: Color32, x: i8, y: i8) -> egui::Frame {

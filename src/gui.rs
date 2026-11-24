@@ -201,7 +201,7 @@ pub(crate) fn run(path: Option<PathBuf>, demo: bool) -> Result<()> {
     }));
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1220.0, 820.0])
+            .with_inner_size([1220.0, 720.0])
             .with_min_inner_size([760.0, 520.0])
             .with_icon(mask.clone()),
         renderer: eframe::Renderer::Wgpu,
@@ -542,16 +542,23 @@ impl eframe::App for Workspace {
             .frame(palette.panel(palette.bg, 22, 10))
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    if let Some(mask) = &self.header_mask {
-                        ui.add(
-                            egui::Image::new((mask.id(), Vec2::new(31.0, 38.0)))
-                                .tint(palette.accent),
-                        );
-                    }
+                    palette.panel(palette.surface, 8, 4).show(ui, |ui| {
+                        if let Some(mask) = &self.header_mask {
+                            ui.add(
+                                egui::Image::new((mask.id(), Vec2::new(23.0, 28.0)))
+                                    .tint(palette.accent),
+                            );
+                        }
+                    });
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 0.0;
-                        ui.strong(RichText::new("Vesp").size(22.0));
-                        ui.label(RichText::new("Dex").size(22.0).color(palette.accent));
+                        ui.strong(RichText::new("Vesp").size(24.0));
+                        ui.label(
+                            RichText::new("Dex")
+                                .size(24.0)
+                                .strong()
+                                .color(palette.accent),
+                        );
                     });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(
@@ -630,8 +637,8 @@ impl eframe::App for Workspace {
             });
         egui::SidePanel::left("navigation")
             .resizable(false)
-            .exact_width(174.0)
-            .frame(palette.panel(palette.surface, 12, 20))
+            .exact_width(206.0)
+            .frame(palette.panel(palette.surface, 12, 22).corner_radius(0))
             .show(ctx, |ui| {
                 ui.label(
                     RichText::new(lang.text("ANALİZ", "ANALYSIS"))
@@ -685,40 +692,59 @@ impl eframe::App for Workspace {
             });
 
         egui::CentralPanel::default()
-            .frame(palette.panel(palette.bg, 0, 0))
+            .frame(egui::Frame::new().fill(palette.bg))
             .show(ctx, |ui| {
-                palette.panel(palette.bg, 26, 14).show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label(
-                            RichText::new(self.view.group(lang))
-                                .small()
-                                .color(palette.muted),
-                        );
-                        ui.strong(self.view.label(lang));
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let name = self
-                                .visible_path()
-                                .and_then(|path| path.file_name())
-                                .map(|name| name.to_string_lossy())
-                                .unwrap_or_else(|| {
-                                    if self.view != View::Start
-                                        && self.report.is_some()
-                                        && self.path.is_none()
-                                    {
-                                        lang.text("Yerleşik örnek", "Built-in example").into()
-                                    } else {
-                                        lang.text("Henüz kayıt yok", "No recording open").into()
-                                    }
-                                });
-                            ui.add(
-                                egui::Label::new(
-                                    RichText::new(name).small().monospace().color(palette.muted),
-                                )
-                                .truncate(),
+                palette
+                    .panel(palette.surface, 24, 11)
+                    .corner_radius(0)
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            let available = ui.available_width();
+                            ui.label(
+                                RichText::new(self.view.group(lang))
+                                    .small()
+                                    .color(palette.muted),
+                            );
+                            ui.label(RichText::new("/").color(palette.muted));
+                            ui.strong(self.view.label(lang));
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    let name = self
+                                        .visible_path()
+                                        .and_then(|path| path.file_name())
+                                        .map(|name| name.to_string_lossy())
+                                        .unwrap_or_else(|| {
+                                            if self.view != View::Start
+                                                && self.report.is_some()
+                                                && self.path.is_none()
+                                            {
+                                                lang.text("Yerleşik örnek", "Built-in example")
+                                                    .into()
+                                            } else {
+                                                lang.text("Henüz kayıt yok", "No recording open")
+                                                    .into()
+                                            }
+                                        });
+                                    ui.allocate_ui_with_layout(
+                                        egui::vec2((available * 0.44).min(330.0), 20.0),
+                                        egui::Layout::right_to_left(egui::Align::Center),
+                                        |ui| {
+                                            ui.add(
+                                                egui::Label::new(
+                                                    RichText::new(name)
+                                                        .monospace()
+                                                        .size(12.0)
+                                                        .color(palette.accent_soft),
+                                                )
+                                                .truncate(),
+                                            );
+                                        },
+                                    );
+                                },
                             );
                         });
                     });
-                });
                 egui::Frame::new()
                     .inner_margin(egui::Margin::symmetric(24, 22))
                     .show(ui, |ui| match self.view {
@@ -739,7 +765,7 @@ impl eframe::App for Workspace {
                             let report = self.report.as_ref().expect("view has a report");
                             panel_heading(ui, lang.text("Olay zaman çizelgesi", "Event timeline"));
                             let export_status = palette
-                                .panel(palette.surface, 14, 12)
+                                .panel(palette.surface, 16, 14)
                                 .show(ui, |ui| {
                                     timeline(ui, report, &mut self.timeline, palette, lang)
                                 })
@@ -928,12 +954,15 @@ impl Workspace {
         }
     }
 
-    fn show_mask(&self, ui: &mut egui::Ui, size: f32) {
+    fn paint_mask(&self, ui: &mut egui::Ui, bounds: egui::Rect) {
         if let Some(mask) = &self.mask {
             let dimensions = mask.size_vec2();
-            let scale = size / dimensions.x.max(dimensions.y);
-            ui.add(
-                egui::Image::new((mask.id(), dimensions * scale)).tint(self.theme.palette().accent),
+            let scale = (bounds.width() / dimensions.x).min(bounds.height() / dimensions.y);
+            ui.painter().image(
+                mask.id(),
+                egui::Rect::from_center_size(bounds.center(), dimensions * scale),
+                egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+                self.theme.palette().accent,
             );
         }
     }
@@ -941,77 +970,106 @@ impl Workspace {
     fn start(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let lang = self.language;
         let palette = self.theme.palette();
-        ui.vertical_centered(|ui| {
-            ui.add_space(20.0);
-            ui.vertical(|ui| {
-                ui.set_width(ui.available_width().min(780.0));
-                ui.label(
-                    RichText::new(lang.text("Yeni inceleme", "New investigation"))
-                        .size(32.0)
-                        .strong(),
-                );
-                ui.add_space(16.0);
-                let dragging = ctx.input(|input| !input.raw.hovered_files.is_empty());
-                palette
-                    .panel(
-                        if dragging {
-                            palette.active
-                        } else {
-                            palette.surface
-                        },
-                        24,
-                        24,
-                    )
-                    .stroke(Stroke::new(
-                        1.0_f32,
-                        if dragging {
-                            palette.accent
-                        } else {
-                            palette.line
-                        },
-                    ))
-                    .show(ui, |ui| {
-                        ui.set_min_width(ui.available_width());
-                        ui.horizontal(|ui| {
-                            palette
-                                .panel(Color32::BLACK, 6, 6)
-                                .show(ui, |ui| self.show_mask(ui, 144.0));
-                            ui.add_space(14.0);
-                            ui.vertical(|ui| {
-                                ui.add_space(14.0);
-                                ui.label(
-                                    RichText::new(lang.text(
-                                        "Telemetri kaydı yükle",
-                                        "Open a telemetry recording",
-                                    ))
-                                    .size(21.0)
-                                    .strong(),
-                                );
-                                ui.label(
-                                    RichText::new(lang.text(
-                                        "Telemetri JSON veya Sysmon EVTX dosyasını buraya sürükle.",
-                                        "Drop a telemetry JSON or Sysmon EVTX file here.",
-                                    ))
-                                    .color(palette.muted),
-                                );
-                                ui.add_space(11.0);
+        ui.add_space(10.0);
+        let dragging = ctx.input(|input| !input.raw.hovered_files.is_empty());
+        let edge = if dragging {
+            palette.accent
+        } else {
+            palette.line_hot
+        };
+        palette
+            .panel(palette.surface, 26, 24)
+            .stroke(Stroke::new(1.0_f32, edge))
+            .show(ui, |ui| {
+                let width = ui.available_width();
+                ui.set_min_width(width);
+                ui.horizontal(|ui| {
+                    let art_width = (width * 0.42).max(124.0);
+                    let copy_width = width - art_width - 22.0;
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(copy_width, 244.0),
+                        egui::Layout::top_down(egui::Align::Min),
+                        |ui| {
+                            ui.set_width(copy_width);
+                            ui.add_space(38.0);
+                            ui.label(
+                                RichText::new("JSON / SYSMON EVTX")
+                                    .monospace()
+                                    .size(12.0)
+                                    .color(palette.accent_soft),
+                            );
+                            ui.label(
+                                RichText::new(
+                                    lang.text("Telemetri kaydı aç", "Open a telemetry recording"),
+                                )
+                                .size(32.0)
+                                .strong(),
+                            );
+                            ui.label(
+                                RichText::new(lang.text(
+                                    "Bir kayıt seç veya dosyayı bu alana bırak.",
+                                    "Choose a recording or drop a file here.",
+                                ))
+                                .color(palette.muted),
+                            );
+                            ui.add_space(12.0);
+                            ui.horizontal_wrapped(|ui| {
                                 open_button(ui, self, ctx);
+                                if ui
+                                    .add_enabled(
+                                        self.pending.is_none(),
+                                        egui::Button::new(
+                                            lang.text("Örnek kaydı aç", "Open example"),
+                                        )
+                                        .min_size(Vec2::new(0.0, 36.0)),
+                                    )
+                                    .clicked()
+                                {
+                                    self.load_demo();
+                                }
                             });
-                        });
-                    });
-                ui.add_space(10.0);
-                if ui
-                    .add_enabled(
-                        self.pending.is_none(),
-                        egui::Button::new(lang.text("Örnek kaydı aç", "Open example"))
-                            .min_size(Vec2::new(0.0, 32.0)),
-                    )
-                    .clicked()
-                {
-                    self.load_demo();
-                }
+                        },
+                    );
+                    ui.add_space(6.0);
+                    let (rect, _) =
+                        ui.allocate_exact_size(egui::vec2(art_width, 244.0), egui::Sense::hover());
+                    let painter = ui.painter_at(rect);
+                    painter.rect(
+                        rect,
+                        2,
+                        palette.bg,
+                        Stroke::new(1.0_f32, palette.line),
+                        egui::StrokeKind::Inside,
+                    );
+                    let center = rect.center();
+                    let radius = (art_width * 0.36).min(97.0);
+                    let grid = palette.line.gamma_multiply(0.58);
+                    for y in ((rect.top() as i32 + 12)..(rect.bottom() as i32 - 8)).step_by(16) {
+                        for x in ((rect.left() as i32 + 12)..(rect.right() as i32 - 8)).step_by(16)
+                        {
+                            painter.circle_filled(egui::pos2(x as f32, y as f32), 0.7, grid);
+                        }
+                    }
+                    for ring in [radius * 0.78, radius] {
+                        painter.circle_stroke(center, ring, Stroke::new(1.0_f32, palette.line));
+                    }
+                    let tick = Stroke::new(1.0_f32, edge);
+                    for axis in [egui::Vec2::X, egui::Vec2::Y] {
+                        for sign in [-1.0, 1.0] {
+                            painter.line_segment(
+                                [
+                                    center + axis * sign * (radius - 5.0),
+                                    center + axis * sign * (radius + 8.0),
+                                ],
+                                tick,
+                            );
+                        }
+                    }
+                    let mask_rect =
+                        egui::Rect::from_center_size(center, egui::Vec2::splat(radius * 1.35));
+                    self.paint_mask(ui, mask_rect);
+                });
             });
-        });
     }
 
     fn overview(&mut self, ui: &mut egui::Ui) {
@@ -1034,8 +1092,7 @@ impl Workspace {
                     .clicked();
             });
         });
-        ui.separator();
-        ui.add_space(12.0);
+        ui.add_space(14.0);
         if let Some(report) = &self.report {
             ui.columns(3, |columns| {
                 metric(
@@ -1058,73 +1115,114 @@ impl Workspace {
                 );
             });
             ui.add_space(12.0);
-            palette.panel(palette.surface, 16, 14).show(ui, |ui| {
-                ui.set_min_width(ui.available_width());
-                ui.strong(lang.text("Kayıt bilgileri", "Recording information"));
-                ui.add_space(8.0);
-                ui.label(format!("{}  {}", lang.text("Vaka", "Case"), report.case_id));
-                ui.label(format!(
-                    "{}  {}",
-                    lang.text("Kaynak", "Source"),
-                    report.source
-                ));
-                let is_demo = report.source == "synthetic-demo"
-                    && report.sample_sha256.bytes().all(|byte| byte == b'0');
-                if !is_demo {
-                    ui.label(
-                        RichText::new(format!("SHA-256  {}", report.sample_sha256))
-                            .monospace()
+            let mut open_timeline = false;
+            let mut information = |ui: &mut egui::Ui| {
+                palette.panel(palette.surface, 16, 14).show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
+                    ui.strong(lang.text("Kayıt bilgileri", "Recording information"));
+                    ui.add_space(8.0);
+                    ui.label(format!("{}  {}", lang.text("Vaka", "Case"), report.case_id));
+                    ui.label(format!(
+                        "{}  {}",
+                        lang.text("Kaynak", "Source"),
+                        report.source
+                    ));
+                    let is_demo = report.source == "synthetic-demo"
+                        && report.sample_sha256.bytes().all(|byte| byte == b'0');
+                    if !is_demo {
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(format!("SHA-256  {}", report.sample_sha256))
+                                    .monospace()
+                                    .color(palette.muted),
+                            )
+                            .wrap()
+                            .selectable(true),
+                        );
+                    } else {
+                        ui.label(
+                            RichText::new(lang.text(
+                                "Sentetik örnek · SHA-256 yer tutucu",
+                                "Synthetic example · placeholder SHA-256",
+                            ))
                             .color(palette.muted),
-                    );
-                } else {
-                    ui.label(
-                        RichText::new(lang.text(
-                            "Sentetik örnek · SHA-256 yer tutucu",
-                            "Synthetic example · placeholder SHA-256",
-                        ))
-                        .color(palette.muted),
-                    );
-                }
-                if let Some(window) = &report.capture_window {
-                    ui.label(
-                        RichText::new(format!(
-                            "{}  {} – {}",
-                            lang.text("Gözlem", "Observation"),
-                            window.start,
-                            window.end
-                        ))
-                        .color(palette.muted),
-                    );
-                }
-                ui.add_space(10.0);
-                if ui
-                    .button(
-                        RichText::new(lang.text("Zaman çizelgesini aç", "Open timeline"))
-                            .color(palette.accent_soft),
-                    )
-                    .clicked()
-                {
-                    self.view = View::Timeline;
-                }
-            });
-            ui.add_space(12.0);
-            palette.panel(palette.surface, 16, 14).show(ui, |ui| {
+                        );
+                    }
+                    if let Some(window) = &report.capture_window {
+                        ui.label(
+                            RichText::new(format!(
+                                "{}  {} – {}",
+                                lang.text("Gözlem", "Observation"),
+                                window.start,
+                                window.end
+                            ))
+                            .color(palette.muted),
+                        );
+                    }
+                    ui.add_space(10.0);
+                    open_timeline = ui
+                        .button(
+                            RichText::new(lang.text("Zaman çizelgesini aç", "Open timeline"))
+                                .color(palette.accent_soft),
+                        )
+                        .clicked();
+                });
+            };
+            let coverage = |ui: &mut egui::Ui| {
+                palette.panel(palette.surface, 16, 14).show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
                 ui.strong(lang.text("Kayıt kapsamı", "Recording coverage"));
                 ui.add_space(6.0);
                 ui.label(RichText::new(lang.text("Toplamanın eksiksiz olup olmadığı bilinmiyor. Sıfır, bu kayıtta ilgili olayın görünmediğini belirtir.", "Recording completeness is unknown. A zero means this event type was absent from the recording.")).color(palette.muted));
-                ui.add_space(6.0);
+                ui.add_space(10.0);
+                let max_count = report
+                    .coverage
+                    .observed_kind_counts
+                    .values()
+                    .copied()
+                    .max()
+                    .unwrap_or(0)
+                    .max(1);
                 for kind in EventKind::ALL {
                     let count = report.coverage.observed_kind_counts[kind.key()];
                     ui.horizontal(|ui| {
-                        ui.label(event_label(kind, lang));
-                        ui.label(RichText::new(count.to_string()).monospace().color(if count > 0 { palette.accent } else { palette.muted }));
+                        ui.add_sized([150.0, 24.0], egui::Label::new(event_label(kind, lang)));
+                        let (track, _) = ui.allocate_exact_size(
+                            egui::vec2((ui.available_width() - 95.0).clamp(48.0, 430.0), 4.0),
+                            egui::Sense::hover(),
+                        );
+                        ui.painter().rect_filled(track, 1, palette.line);
+                        if count > 0 {
+                            let fill = egui::Rect::from_min_size(
+                                track.min,
+                                egui::vec2(track.width() * count as f32 / max_count as f32, 4.0),
+                            );
+                            ui.painter().rect_filled(fill, 1, palette.accent);
+                        }
+                        ui.label(RichText::new(count.to_string()).monospace().color(
+                            if count > 0 { palette.accent_soft } else { palette.muted },
+                        ));
                     });
                 }
+                ui.separator();
                 ui.add_space(6.0);
                 ui.label(format!("{}: {}", lang.text("Başlangıç olayı olmayan süreç", "Processes without a recorded start"), report.coverage.processes_without_start));
                 ui.label(format!("{}: {}", lang.text("Üst süreci kayıtta olmayan süreç", "Processes whose parent is absent"), report.coverage.processes_with_unseen_parent));
-            });
+                });
+            };
+            if ui.available_width() >= 820.0 {
+                ui.columns(2, |columns| {
+                    information(&mut columns[0]);
+                    coverage(&mut columns[1]);
+                });
+            } else {
+                information(ui);
+                ui.add_space(12.0);
+                coverage(ui);
+            }
+            if open_timeline {
+                self.view = View::Timeline;
+            }
         }
         if export {
             self.export();
@@ -1133,9 +1231,8 @@ impl Workspace {
 }
 
 fn panel_heading(ui: &mut egui::Ui, title: &str) {
-    ui.label(RichText::new(title).size(26.0).strong());
-    ui.separator();
-    ui.add_space(12.0);
+    ui.label(RichText::new(title).size(28.0).strong());
+    ui.add_space(10.0);
 }
 
 fn open_button(ui: &mut egui::Ui, workspace: &mut Workspace, ctx: &egui::Context) {
@@ -1166,20 +1263,22 @@ fn nav(
     lang: Language,
 ) {
     let selected = *current == destination;
-    let button = egui::Button::new(RichText::new(destination.label(lang)).color(if selected {
+    let text_color = if selected {
         palette.accent_soft
     } else {
-        palette.muted
-    }))
-    .selected(selected)
-    .fill(if selected {
-        palette.active
-    } else {
-        Color32::TRANSPARENT
-    })
-    .min_size(Vec2::new(ui.available_width(), 34.0));
+        palette.text
+    };
+    let button = egui::Button::new(RichText::new(destination.label(lang)).color(text_color))
+        .selected(selected)
+        .fill(if selected {
+            palette.active
+        } else {
+            Color32::TRANSPARENT
+        })
+        .min_size(Vec2::new(ui.available_width(), 34.0));
     let response = ui
         .scope(|ui| {
+            ui.spacing_mut().button_padding.x = 27.0;
             ui.visuals_mut().widgets.inactive.bg_stroke = Stroke::NONE;
             ui.add_enabled(enabled, button)
         })
@@ -1191,22 +1290,94 @@ fn nav(
             Stroke::new(2.0_f32, palette.accent),
         );
     }
+    let center = egui::pos2(response.rect.left() + 14.0, response.rect.center().y);
+    let icon_color = if selected {
+        palette.accent
+    } else {
+        palette.muted
+    };
+    nav_icon(
+        ui,
+        &destination,
+        center,
+        if enabled {
+            icon_color
+        } else {
+            icon_color.gamma_multiply(0.5)
+        },
+    );
     if response.clicked() {
         *current = destination;
     }
 }
 
+fn nav_icon(ui: &egui::Ui, view: &View, center: egui::Pos2, color: Color32) {
+    let painter = ui.painter();
+    let stroke = Stroke::new(1.3_f32, color);
+    let point = |x, y| center + egui::vec2(x, y);
+    let line = |points: &[(f32, f32)]| {
+        painter.add(egui::Shape::line(
+            points.iter().map(|&(x, y)| point(x, y)).collect(),
+            stroke,
+        ));
+    };
+    match view {
+        View::Start => line(&[
+            (-6.0, 1.0),
+            (0.0, -5.0),
+            (6.0, 1.0),
+            (4.0, 1.0),
+            (4.0, 6.0),
+            (-4.0, 6.0),
+            (-4.0, 1.0),
+            (-6.0, 1.0),
+        ]),
+        View::Overview => {
+            for x in [-4.0, 4.0] {
+                for y in [-4.0, 4.0] {
+                    painter.rect_stroke(
+                        egui::Rect::from_center_size(point(x, y), egui::Vec2::splat(5.0)),
+                        0,
+                        stroke,
+                        egui::StrokeKind::Inside,
+                    );
+                }
+            }
+        }
+        View::ChooseProcess | View::Processes => {
+            line(&[(0.0, -3.0), (0.0, 1.0), (-5.0, 1.0), (-5.0, 3.0)]);
+            line(&[(0.0, 1.0), (5.0, 1.0), (5.0, 3.0)]);
+            for (x, y) in [(0.0, -5.0), (-5.0, 5.0), (5.0, 5.0)] {
+                painter.circle_stroke(point(x, y), 2.0, stroke);
+            }
+        }
+        View::Timeline => {
+            painter.circle_stroke(center, 6.0, stroke);
+            line(&[(0.0, -3.0), (0.0, 0.0), (3.0, 2.0)]);
+        }
+        View::Compare => {
+            line(&[(-6.0, -3.0), (6.0, -3.0), (3.0, -6.0)]);
+            line(&[(6.0, 3.0), (-6.0, 3.0), (-3.0, 6.0)]);
+        }
+    }
+}
+
 fn metric(ui: &mut egui::Ui, label: &str, number: usize, palette: Palette) {
-    palette.panel(palette.surface, 16, 13).show(ui, |ui| {
-        ui.set_min_width(ui.available_width());
-        ui.label(RichText::new(label).color(palette.muted));
+    let card = palette.panel(palette.surface, 16, 13).show(ui, |ui| {
+        ui.set_min_size(egui::vec2(ui.available_width(), 70.0));
         ui.label(
             RichText::new(number.to_string())
                 .monospace()
-                .size(30.0)
-                .color(palette.accent),
+                .size(32.0)
+                .color(palette.text),
         );
+        ui.label(RichText::new(label).color(palette.muted));
     });
+    let corner = card.response.rect.left_top() + egui::vec2(1.0, 1.0);
+    ui.painter().line_segment(
+        [corner, corner + egui::vec2(38.0, 0.0)],
+        Stroke::new(2.0_f32, palette.accent),
+    );
 }
 
 fn event_label(kind: EventKind, lang: Language) -> &'static str {
@@ -1490,6 +1661,8 @@ fn timeline(
     } else if visible_marks_changed {
         visible = visible_timeline_events(report, timeline, &range);
     }
+    ui.add_space(4.0);
+    ui.separator();
     let mut export = false;
     ui.horizontal(|ui| {
         ui.label(
@@ -1548,7 +1721,7 @@ fn timeline(
             timeline.process.as_deref(),
         ))
         .auto_shrink([false, false]);
-    const ROW_HEIGHT: f32 = 32.0;
+    const ROW_HEIGHT: f32 = 37.0;
     if let Some(row) = scroll_to_row {
         scroll =
             scroll.vertical_scroll_offset(row as f32 * (ROW_HEIGHT + ui.spacing().item_spacing.y));
@@ -1556,7 +1729,14 @@ fn timeline(
         scroll = scroll.vertical_scroll_offset(0.0);
     }
     scroll.show_rows(ui, ROW_HEIGHT, visible.len(), |ui, rows| {
-        for (index, event) in &visible[rows] {
+        let mono = egui::FontId::monospace(12.0);
+        let body = egui::FontId::proportional(14.0);
+        let timestamp_column = if ui.available_width() < 620.0 {
+            172.0
+        } else {
+            218.0
+        };
+        for (row, (index, event)) in visible[rows.clone()].iter().enumerate() {
             let mut label = egui::text::LayoutJob::default();
             let elapsed = elapsed_label(event.elapsed, lang);
             let prefix = if timeline.marked.contains(index) {
@@ -1564,47 +1744,72 @@ fn timeline(
             } else {
                 elapsed
             };
+            let kind = event_label(event.kind, lang);
+            let column_gap = |width: f32, text: &str, font: &egui::FontId| {
+                let used = ui.fonts(|fonts| {
+                    fonts
+                        .layout_no_wrap(text.to_owned(), font.clone(), palette.text)
+                        .size()
+                        .x
+                });
+                (width - used).max(12.0)
+            };
             label.append(
                 &prefix,
                 0.0,
                 egui::TextFormat {
-                    font_id: egui::FontId::monospace(11.0),
+                    font_id: mono.clone(),
                     color: palette.accent_soft,
                     ..Default::default()
                 },
             );
             label.append(
                 &event.timestamp,
-                12.0,
+                column_gap(78.0, &prefix, &mono),
                 egui::TextFormat {
-                    font_id: egui::FontId::monospace(11.0),
+                    font_id: mono.clone(),
                     color: palette.muted,
                     ..Default::default()
                 },
             );
             label.append(
-                event_label(event.kind, lang),
-                14.0,
+                kind,
+                column_gap(timestamp_column, &event.timestamp, &mono),
                 egui::TextFormat {
-                    font_id: egui::FontId::proportional(13.0),
+                    font_id: body.clone(),
                     color: palette.accent_soft,
                     ..Default::default()
                 },
             );
             label.append(
                 &event.detail,
-                14.0,
+                column_gap(132.0, kind, &body),
                 egui::TextFormat {
-                    font_id: egui::FontId::proportional(13.0),
+                    font_id: body.clone(),
                     color: palette.text,
                     ..Default::default()
                 },
             );
+            let selected = timeline.selected == Some(*index);
             let button = egui::Button::new(label)
-                .selected(timeline.selected == Some(*index))
+                .selected(selected)
                 .min_size(Vec2::new(ui.available_width(), ROW_HEIGHT))
                 .truncate();
-            if ui.add(button).clicked() {
+            let response = ui
+                .scope(|ui| {
+                    if !selected {
+                        let inactive = &mut ui.visuals_mut().widgets.inactive;
+                        inactive.bg_stroke = Stroke::NONE;
+                        inactive.weak_bg_fill = if (rows.start + row) % 2 == 0 {
+                            palette.bg
+                        } else {
+                            palette.surface
+                        };
+                    }
+                    ui.add(button)
+                })
+                .inner;
+            if response.clicked() {
                 timeline.selected = Some(*index);
                 timeline.detail_copied = false;
             }
