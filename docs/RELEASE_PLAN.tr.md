@@ -49,6 +49,9 @@ ortamından toplar. Bir olaya ait eksik kayıtlar ekranda açıkça belirtilir.
   ortaya çıkardı. `ff139e4` ile dosya sorgusu düzeltildi. Windows PowerShell
   5.1'de iki seçilebilir süreç, kök SHA-256, alt süreç ilişkisi ve alt sürecin
   dosya ve loopback olayları doğrulandı. Bu düzeltme sürüm adayına dahildir.
+  [Ayrı Windows Server 2025 kabul çalışmasında](https://github.com/dRafaleD/VespDex/actions/runs/45347793547)
+  canlı Sysmon kontrolü ve Sysmon kurulu olmayan çalıştırıcıda EVTX okuma
+  kontrolü geçti.
 - Sysmon kurulu olmayan Windows 11 Pro x64'te `ff139e4` masaüstü derlemesiyle
   aynı EVTX normal ve 762 piksel genişliğindeki pencerelerde açıldı. Kök
   seçimi dört olay ve iki süreç gösterdi. Süreç ağacından alt sürece
@@ -57,6 +60,10 @@ ortamından toplar. Bir olaya ait eksik kayıtlar ekranda açıkça belirtilir.
   yeniden okunarak üst/alt süreç ve olay ilişkileri doğrulandı. Bozuk EVTX,
   dosya seçicisinden vazgeçme ve çalışan analizi `Esc` ile iptal etme
   senaryolarında önceki rapor ve filtreler korundu.
+- `622b1d4` ile güncellenen maske, Windows 11'de hem masaüstü başlangıç
+  ekranında hem etkileşimli terminal açılışında görüldü. Bu commit'ten
+  yerel olarak hazırlanan Windows x64 ZIP'i sekiz dosyanın sağlama toplamı,
+  GUI açılışı, CLI örneği, JSON raporu ve kaldırma kontrollerini geçti.
 - Yerel [üç araç uyum kontrolü](BEHAVIOR_REPORT_V1.md#interoperability-check)
   geçti. AsphDex (`a940301`) aynı dosyanın hash'ini eşleştirdi ve farklı
   hash'i reddetti. Banshee (`e68d1b0`) iki ağ göstergesini doğru olay
