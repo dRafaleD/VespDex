@@ -59,6 +59,7 @@ Güncel kaynak derlemesi, kaydedilmiş v1 davranış raporlarını masaüstünde
 Güncel Windows kaynak derlemesinde **Görünen olayları CSV kaydet** düğmesi zaman çizelgesi filtrelerine uyan olayları kaydeder. JSON dışa aktarma raporun tamamını kaydeder.
 
 Olay sayılarını, süreç kapsamını, gözlem aralıklarını ve dosya hash’lerini karşılaştırmak için **Karşılaştırma** ekranında ikinci bir JSON kaydı veya raporu seç.
+Fark tablosundan bir olay türünü seçerek iki kayıttaki ilgili olayları inceleyebilirsin.
 
 ### Sysmon kayıtları
 

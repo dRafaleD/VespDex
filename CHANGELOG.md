@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Open an event-type row in the desktop comparison to inspect its recorded events and details side by side.
 - Compare two local JSON captures or reports in the Windows desktop, including file identity, event count deltas and observed coverage.
 - Step through matching events from the desktop event detail panel without changing the timeline filters.
 - Show elapsed time alongside each absolute event timestamp so the timeline's time bounds can be read directly from the event list.

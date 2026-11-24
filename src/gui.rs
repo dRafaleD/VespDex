@@ -144,6 +144,7 @@ enum Loaded {
 struct Comparison {
     path: PathBuf,
     report: Box<Report>,
+    event_review: Option<compare::EventReview>,
 }
 
 struct PendingLoad {
@@ -373,7 +374,11 @@ impl Workspace {
         match result {
             Ok(Loaded::Report(report)) => self.commit_report(Some(path), report),
             Ok(Loaded::Comparison(report)) => {
-                self.comparison = Some(Comparison { path, report });
+                self.comparison = Some(Comparison {
+                    path,
+                    report,
+                    event_review: None,
+                });
                 self.view = View::Compare;
             }
             Ok(Loaded::Processes(candidates)) => {
@@ -702,7 +707,7 @@ impl Workspace {
                 self.message = None;
             }
         });
-        let Some(comparison) = &self.comparison else {
+        let Some(comparison) = &mut self.comparison else {
             ui.label("Olay sayılarını ve kayıt kapsamını görmek için ikinci bir kayıt seç.");
             return;
         };
