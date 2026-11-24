@@ -18,7 +18,7 @@ use crossterm::{
 };
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use crate::{EventKind, Report, analyze, normalize_guid, read_capture, save_report};
+use crate::{EventKind, Report, analyze, normalize_guid, read_recording, save_report};
 
 mod boot;
 mod portrait;
@@ -163,7 +163,7 @@ impl Workspace {
                 let path = self.capture.as_ref().context("open <file>")?;
                 self.report = None;
                 self.body = None;
-                let report = analyze(read_capture(path)?)?;
+                let report = analyze(read_recording(path)?)?;
                 let mut lines = vec![
                     self.text("  ◆ Davranış raporu", "  ◆ Behavior report")
                         .into(),

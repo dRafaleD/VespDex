@@ -11,7 +11,7 @@ use std::{
 use anyhow::Result;
 use eframe::egui::{self, Color32, RichText, Stroke, Vec2};
 
-use crate::{EventKind, Report, analyze, demo_report, read_capture, save_report};
+use crate::{EventKind, Report, analyze, demo_report, read_recording, save_report};
 
 mod sysmon;
 
@@ -226,7 +226,7 @@ impl Workspace {
 
     fn pick_capture(&mut self, ctx: &egui::Context) {
         if let Some(path) = rfd::FileDialog::new()
-            .add_filter("Telemetri kayıtları", &["json", "evtx"])
+            .add_filter("Telemetri kayıtları ve raporlar", &["json", "evtx"])
             .pick_file()
         {
             self.load(path, ctx);
@@ -242,7 +242,7 @@ impl Workspace {
             if evtx {
                 sysmon::list(path, cancelled).map(Loaded::Processes)
             } else {
-                read_capture(path)
+                read_recording(path)
                     .and_then(analyze)
                     .map(Box::new)
                     .map(Loaded::Report)
@@ -762,7 +762,9 @@ impl Workspace {
                 ui.add_space(8.0);
                 ui.label(format!("Vaka  {}", report.case_id));
                 ui.label(format!("Kaynak  {}", report.source));
-                if self.path.is_some() {
+                let is_demo = report.source == "synthetic-demo"
+                    && report.sample_sha256.bytes().all(|byte| byte == b'0');
+                if !is_demo {
                     ui.label(
                         RichText::new(format!("SHA-256  {}", report.sample_sha256))
                             .monospace()

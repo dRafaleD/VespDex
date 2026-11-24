@@ -17,11 +17,12 @@ mod terminal;
 const MAX_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_EVENTS: usize = 2_000;
 const MAX_DETAIL: usize = 1_024;
+const REPORT_KIND: &str = "asphdex-behavior-report";
 
 #[derive(Parser)]
 #[command(version, about = "Analyze recorded runtime telemetry offline")]
 struct Args {
-    /// Version 1 telemetry capture JSON
+    /// Version 1 telemetry capture or behavior report JSON
     #[arg(required_unless_present_any = ["gui", "demo"], conflicts_with = "demo")]
     capture: Option<PathBuf>,
     /// Open or analyze the built-in synthetic example
@@ -38,6 +39,17 @@ struct Args {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Capture {
+    schema_version: u32,
+    case_id: String,
+    sample_sha256: String,
+    source: String,
+    capture_window: Option<CaptureWindow>,
+    events: Vec<Event>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ReportInput {
     schema_version: u32,
     case_id: String,
     sample_sha256: String,
@@ -161,16 +173,40 @@ fn normalize_guid(value: &str) -> Result<String> {
     Ok(guid.to_ascii_lowercase())
 }
 
-fn read_capture(path: &Path) -> Result<Capture> {
-    ensure!(path.metadata()?.is_file(), "capture must be a regular file");
+fn read_recording(path: &Path) -> Result<Capture> {
+    #[derive(Deserialize)]
+    struct RecordingFormat {
+        kind: Option<String>,
+    }
+
+    ensure!(
+        path.metadata()?.is_file(),
+        "recording must be a regular file"
+    );
     let file = File::open(path)?;
     let metadata = file.metadata()?;
-    ensure!(metadata.is_file(), "capture must be a regular file");
+    ensure!(metadata.is_file(), "recording must be a regular file");
     ensure!(metadata.len() <= MAX_BYTES, "capture exceeds 4 MiB");
     let mut bytes = Vec::new();
     file.take(MAX_BYTES + 1).read_to_end(&mut bytes)?;
     ensure!(bytes.len() as u64 <= MAX_BYTES, "capture exceeds 4 MiB");
-    serde_json::from_slice(&bytes).context("invalid telemetry capture JSON")
+    let format: RecordingFormat =
+        serde_json::from_slice(&bytes).context("invalid recording JSON")?;
+    let Some(kind) = format.kind else {
+        return serde_json::from_slice(&bytes).context("invalid telemetry capture JSON");
+    };
+    ensure!(kind == REPORT_KIND, "unsupported behavior report kind");
+    let report: ReportInput =
+        serde_json::from_slice(&bytes).context("invalid behavior report JSON")?;
+    // Analyze events again so stored counts, trees and coverage cannot override them.
+    Ok(Capture {
+        schema_version: report.schema_version,
+        case_id: report.case_id,
+        sample_sha256: report.sample_sha256,
+        source: report.source,
+        capture_window: report.capture_window,
+        events: report.events,
+    })
 }
 
 fn validate_process_relationships(processes: &BTreeMap<String, ProcessSummary>) -> Result<()> {
@@ -320,7 +356,7 @@ fn analyze(capture: Capture) -> Result<Report> {
     };
 
     Ok(Report {
-        kind: "asphdex-behavior-report",
+        kind: REPORT_KIND,
         schema_version: 1,
         case_id: capture.case_id,
         sample_sha256: capture.sample_sha256.to_ascii_lowercase(),
@@ -392,8 +428,8 @@ fn main() -> Result<()> {
     let report = if args.demo {
         demo_report()?
     } else {
-        let capture = args.capture.context("a telemetry capture is required")?;
-        analyze(read_capture(&capture).context("unable to read capture")?)?
+        let recording = args.capture.context("a telemetry recording is required")?;
+        analyze(read_recording(&recording).context("unable to read recording")?)?
     };
     if let Some(destination) = args.output {
         save_report(&report, &destination)?;

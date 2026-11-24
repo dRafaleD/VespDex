@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Reopen saved v1 behavior reports in the Windows desktop, terminal, and CLI. Rebuild summaries from validated events.
+
 ## 0.3.0-rc.1
 
 - Added the Windows desktop workspace for JSON telemetry and exported Sysmon EVTX.

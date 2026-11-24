@@ -50,8 +50,11 @@ On Windows, run `vespdex --gui`. Select **Tema** in the header to change the the
 | Open the interactive terminal workspace | `vespdex` |
 | Print the synthetic report as JSON | `vespdex --demo` |
 | Analyze a capture and save a JSON report | `vespdex capture.json --output behavior.json` |
+| Reopen a saved behavior report | `vespdex behavior.json` |
 
 In the desktop, **Ctrl+O** opens a recording, **Ctrl+F** focuses timeline search, **Ctrl+S** saves the report, and **Esc** cancels an active import. In the terminal workspace, use `help` to list commands and `lang tr` or `lang en` to switch languages.
+
+The current source build opens saved v1 behavior reports in the desktop, terminal and CLI. It rebuilds counts, process relationships and coverage from the recorded events.
 
 ### Sysmon recordings
 

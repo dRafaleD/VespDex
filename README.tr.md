@@ -50,8 +50,11 @@ Windows’ta `vespdex --gui` ile aç. Sağ üstteki **Tema** menüsü görünüm
 | Etkileşimli terminali aç | `vespdex` |
 | Sentetik raporu JSON olarak yazdır | `vespdex --demo` |
 | Kaydı analiz et ve raporu kaydet | `vespdex capture.json --output behavior.json` |
+| Kaydedilen davranış raporunu yeniden aç | `vespdex behavior.json` |
 
 Masaüstünde **Ctrl+O** kayıt açar, **Ctrl+F** aramaya odaklanır, **Ctrl+S** raporu kaydeder ve **Esc** süren içe aktarmayı iptal eder. Terminalde `help` ile komutları görebilir, `lang tr` veya `lang en` ile dili değiştirebilirsin.
+
+Güncel kaynak derlemesi, kaydedilmiş v1 davranış raporlarını masaüstünde, terminalde ve CLI’da açar. Olay sayılarını, süreç ilişkilerini ve kapsam bilgisini kayıttaki olaylardan yeniden çıkarır.
 
 ### Sysmon kayıtları
 

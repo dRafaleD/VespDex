@@ -75,6 +75,49 @@ fn builtin_demo_matches_the_documented_sample_without_opening_a_capture_file() {
 }
 
 #[test]
+fn reopens_saved_reports_and_rebuilds_derived_fields() {
+    let original = run(include_bytes!("../examples/capture.json"));
+    assert!(original.status.success());
+    let reopened = run(&original.stdout);
+    assert!(reopened.status.success(), "{:?}", reopened.stderr);
+    assert_eq!(reopened.stdout, original.stdout);
+
+    let mut report: Value = serde_json::from_slice(&original.stdout).unwrap();
+    report["counts"] = json!({"file-write": 99});
+    report["processes"] = json!({});
+    report["coverage"] = json!({"completeness": "complete"});
+    report["unattributedEventCount"] = json!(99);
+    report["futureField"] = json!({"note": "additive report metadata"});
+    let rebuilt = run(&serde_json::to_vec(&report).unwrap());
+    assert!(rebuilt.status.success(), "{:?}", rebuilt.stderr);
+    assert_eq!(rebuilt.stdout, original.stdout);
+}
+
+#[test]
+fn report_import_keeps_validation_and_capture_format_boundaries() {
+    let original = run(include_bytes!("../examples/capture.json"));
+    assert!(original.status.success());
+    let mut report: Value = serde_json::from_slice(&original.stdout).unwrap();
+    report["kind"] = json!("unrelated-report");
+    assert_rejected(&report, "unsupported behavior report kind");
+
+    report["kind"] = json!("asphdex-behavior-report");
+    report["schemaVersion"] = json!(2);
+    assert_rejected(&report, "unsupported capture schema version");
+
+    report["schemaVersion"] = json!(1);
+    report["events"][0]["timestamp"] = json!("not a timestamp");
+    assert_rejected(&report, "invalid RFC 3339 timestamp");
+
+    report["events"] = json!(false);
+    assert_rejected(&report, "invalid behavior report JSON");
+
+    let mut raw_capture = capture();
+    raw_capture["futureField"] = json!(true);
+    assert_rejected(&raw_capture, "unknown field");
+}
+
+#[test]
 fn uses_absolute_time_and_preserves_events_without_a_process() {
     let mut input = capture();
     input["events"] = json!([
