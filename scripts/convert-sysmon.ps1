@@ -31,7 +31,6 @@ $filter = @{
     ProviderName = 'Microsoft-Windows-Sysmon'
     Id = 1, 3, 11, 13, 22
 }
-if ($ListProcesses) { $filter.Id = 1 }
 $window = $null
 if ($Live) {
     $now = [datetimeoffset]::UtcNow
@@ -58,12 +57,19 @@ if ($Live) {
         throw 'Select an exported Sysmon .evtx file.'
     }
     if ((Get-Item -LiteralPath $path).Length -gt 128MB) { throw 'EVTX exceeds 128 MiB.' }
-    $filter.Path = [WildcardPattern]::Escape($path)
     $source = "sysmon-evtx:$root"
 }
 
 try {
-    $rows = @(Get-WinEvent -FilterHashtable $filter -Oldest -MaxEvents 20001)
+    if ($Live) {
+        $rows = @(Get-WinEvent -FilterHashtable $filter -Oldest -MaxEvents 20001)
+    } else {
+        # Match the provider in the file without looking for a locally registered provider.
+        $eventIds = if ($ListProcesses) { @(1) } else { $filter.Id }
+        $eventCondition = ($eventIds | ForEach-Object { "EventID=$_" }) -join ' or '
+        $query = "*[System[Provider[@Name='Microsoft-Windows-Sysmon'] and ($eventCondition)]]"
+        $rows = @(Get-WinEvent -Path ([WildcardPattern]::Escape($path)) -FilterXPath $query -Oldest -MaxEvents 20001)
+    }
 } catch {
     if ($_.FullyQualifiedErrorId -like 'NoMatchingEventsFound,*') {
         throw 'There are no supported Sysmon events in the selected capture.'

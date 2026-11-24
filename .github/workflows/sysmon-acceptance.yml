@@ -58,3 +58,43 @@ jobs:
           path: vespdex-sysmon-fixture.evtx
           if-no-files-found: error
           retention-days: 7
+
+  offline-evtx:
+    needs: sysmon
+    runs-on: windows-2025
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/convert-sysmon.ps1
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: sysmon-benign-fixture
+      - name: Read the exported capture without a registered Sysmon provider
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (Get-WinEvent -ListProvider Microsoft-Windows-Sysmon -ErrorAction SilentlyContinue) {
+              throw 'The offline test requires a runner without a registered Sysmon provider.'
+          }
+          $evtx = './vespdex-sysmon-fixture.evtx'
+          $convert = './scripts/convert-sysmon.ps1'
+          $candidates = & $convert -Evtx $evtx -ListProcesses | ConvertFrom-Json
+          if ($candidates.Count -ne 2) { throw 'Expected two selectable processes.' }
+          $rootCapture = @(foreach ($candidate in $candidates) {
+              $capture = & $convert -Evtx $evtx -ProcessGuid $candidate.guid -CaseId offline-evtx | ConvertFrom-Json
+              $starts = @($capture.events | Where-Object kind -eq 'process-start')
+              if ($starts.Count -ne 2) { continue }
+              $child = @($starts | Where-Object parentProcessGuid -eq $candidate.guid)
+              if ($child.Count -ne 1 -or $capture.sampleSha256 -ne $candidate.sha256) {
+                  throw 'The offline capture lost the root SHA-256 or child relationship.'
+              }
+              $childKinds = @($capture.events | Where-Object processGuid -eq $child[0].processGuid | ForEach-Object kind)
+              if ('network-connection' -notin $childKinds -or 'file-write' -notin $childKinds) {
+                  throw 'The offline capture lost the child network or file event.'
+              }
+              $capture
+          })
+          if ($rootCapture.Count -ne 1) { throw 'Expected one capture containing both processes.' }
