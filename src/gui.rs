@@ -74,6 +74,14 @@ struct Timeline {
     focus_search: bool,
 }
 
+impl Timeline {
+    fn focus_process(&mut self, guid: &str) {
+        self.process = Some(guid.to_owned());
+        self.kind = None;
+        self.query.clear();
+    }
+}
+
 enum Loaded {
     Report(Box<Report>),
     Processes(Vec<sysmon::Candidate>),
@@ -905,7 +913,7 @@ fn timeline(ui: &mut egui::Ui, report: &Report, timeline: &mut Timeline, palette
         reset_scroll |= previous != timeline.kind;
         let search = ui.add(
             egui::TextEdit::singleline(&mut timeline.query)
-                .hint_text("Olay ayrıntılarında ara")
+                .hint_text("Olay veya süreç ara")
                 .char_limit(160)
                 .desired_width(204.0),
         );
@@ -918,7 +926,11 @@ fn timeline(ui: &mut egui::Ui, report: &Report, timeline: &mut Timeline, palette
             reset_scroll = true;
         }
         if let Some(guid) = timeline.process.as_ref() {
-            ui.label(RichText::new(guid.as_str()).monospace());
+            let name = process_image(report, guid)
+                .and_then(|path| path.rsplit(['\\', '/']).next())
+                .unwrap_or(guid);
+            ui.label(RichText::new(name).monospace())
+                .on_hover_text(guid);
             if ui.small_button("Süreç filtresini kaldır").clicked() {
                 timeline.process = None;
                 reset_scroll = true;
@@ -929,19 +941,6 @@ fn timeline(ui: &mut egui::Ui, report: &Report, timeline: &mut Timeline, palette
         timeline.selected = None;
         timeline.detail_copied = false;
     }
-    let query = timeline.query.trim().to_lowercase();
-    let visible: Vec<_> = report
-        .events
-        .iter()
-        .enumerate()
-        .filter(|(_, event)| timeline_matches(event, timeline, &query))
-        .collect();
-    ui.label(
-        RichText::new(format!("{} / {} olay", visible.len(), report.events.len()))
-            .small()
-            .monospace()
-            .color(palette.muted),
-    );
     if let Some(index) = timeline.selected
         && let Some(event) = report.events.get(index)
     {
@@ -972,11 +971,25 @@ fn timeline(ui: &mut egui::Ui, report: &Report, timeline: &mut Timeline, palette
                         .color(palette.muted),
                 );
                 if let Some(guid) = &event.process_guid {
+                    if let Some(image) = process_image(report, guid) {
+                        let name = image.rsplit(['\\', '/']).next().unwrap_or(image);
+                        ui.label(RichText::new(name).strong()).on_hover_text(image);
+                    }
                     ui.label(
                         RichText::new(format!("Süreç  {guid}"))
                             .monospace()
                             .color(palette.muted),
                     );
+                    if ui
+                        .small_button("Bu sürecin olayları")
+                        .on_hover_text(
+                            "Olay türü ve arama filtrelerini temizleyip bu süreci gösterir.",
+                        )
+                        .clicked()
+                    {
+                        timeline.focus_process(guid);
+                        reset_scroll = true;
+                    }
                 }
             });
             ui.separator();
@@ -988,6 +1001,19 @@ fn timeline(ui: &mut egui::Ui, report: &Report, timeline: &mut Timeline, palette
                 });
         });
     }
+    let query = timeline.query.trim().to_lowercase();
+    let visible: Vec<_> = report
+        .events
+        .iter()
+        .enumerate()
+        .filter(|(_, event)| timeline_matches(event, report, timeline, &query))
+        .collect();
+    ui.label(
+        RichText::new(format!("{} / {} olay", visible.len(), report.events.len()))
+            .small()
+            .monospace()
+            .color(palette.muted),
+    );
     if visible.is_empty() {
         ui.label("Bu filtreyle eşleşen olay yok.");
         return;
@@ -1044,7 +1070,16 @@ fn timeline(ui: &mut egui::Ui, report: &Report, timeline: &mut Timeline, palette
     });
 }
 
-fn timeline_matches(event: &crate::Event, timeline: &Timeline, query: &str) -> bool {
+fn process_image<'a>(report: &'a Report, guid: &str) -> Option<&'a str> {
+    report.processes.get(guid)?.image.as_deref()
+}
+
+fn timeline_matches(
+    event: &crate::Event,
+    report: &Report,
+    timeline: &Timeline,
+    query: &str,
+) -> bool {
     timeline.kind.is_none_or(|kind| kind == event.kind)
         && timeline
             .process
@@ -1052,10 +1087,11 @@ fn timeline_matches(event: &crate::Event, timeline: &Timeline, query: &str) -> b
             .is_none_or(|guid| event.process_guid.as_ref() == Some(guid))
         && (query.is_empty()
             || event.detail.to_lowercase().contains(query)
-            || event
-                .process_guid
-                .as_ref()
-                .is_some_and(|guid| guid.contains(query))
+            || event.process_guid.as_ref().is_some_and(|guid| {
+                guid.contains(query)
+                    || process_image(report, guid)
+                        .is_some_and(|image| image.to_lowercase().contains(query))
+            })
             || event.kind.key().contains(query))
 }
 
@@ -1275,12 +1311,43 @@ mod tests {
             process: dns.process_guid.clone(),
             ..Timeline::default()
         };
-        assert!(timeline_matches(dns, &view, "example.org"));
-        assert!(!timeline_matches(dns, &view, "other.example"));
+        assert!(timeline_matches(dns, &report, &view, "example.org"));
+        assert!(timeline_matches(dns, &report, &view, "demo-worker.exe"));
+        assert!(!timeline_matches(dns, &report, &view, "other.example"));
         view.kind = Some(EventKind::FileWrite);
-        assert!(!timeline_matches(dns, &view, "example.org"));
+        assert!(!timeline_matches(dns, &report, &view, "example.org"));
         view.kind = None;
         view.process = Some("11111111-1111-1111-1111-111111111111".into());
-        assert!(!timeline_matches(dns, &view, "example.org"));
+        assert!(!timeline_matches(dns, &report, &view, "example.org"));
+    }
+
+    #[test]
+    fn focusing_on_the_selected_process_shows_its_full_history() {
+        let report = demo_report().unwrap();
+        let index = report
+            .events
+            .iter()
+            .position(|event| event.kind == EventKind::DnsQuery)
+            .unwrap();
+        let guid = report.events[index].process_guid.as_deref().unwrap();
+        let mut view = Timeline {
+            kind: Some(EventKind::DnsQuery),
+            query: "example.org".into(),
+            selected: Some(index),
+            ..Timeline::default()
+        };
+        view.focus_process(guid);
+        assert_eq!(view.selected, Some(index));
+        assert_eq!(view.process.as_deref(), Some(guid));
+        assert!(view.kind.is_none());
+        assert!(view.query.is_empty());
+        assert_eq!(
+            report
+                .events
+                .iter()
+                .filter(|event| timeline_matches(event, &report, &view, &view.query))
+                .count(),
+            3
+        );
     }
 }

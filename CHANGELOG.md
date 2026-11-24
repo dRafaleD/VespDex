@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Search the desktop timeline by process image. Open the selected event's full process history from the detail panel.
 - Reopen saved v1 behavior reports in the Windows desktop, terminal, and CLI. Rebuild summaries from validated events.
 
 ## 0.3.0-rc.1
