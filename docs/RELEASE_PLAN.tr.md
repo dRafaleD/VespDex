@@ -35,7 +35,16 @@ ortamından toplar. Bir olaya ait eksik kayıtlar ekranda açıkça belirtilir.
   aday ZIP'inden örnek analiz, rapor kaydetme, GUI açılışı ve kaldırma
   geçti. [Aday paket kontrolü](https://github.com/dRafaleD/VespDex/actions/runs/45056216291)
   ve [aday Sysmon kontrolü](https://github.com/dRafaleD/VespDex/actions/runs/45056219745)
-  aynı kodu ayrı çalıştırıcılarda doğrular.
+  ayrı Windows Server 2025 çalıştırıcılarında geçti. Paket kontrolü sekiz
+  dosyayı doğruladı, CLI raporunu yeniden okudu, GUI'yi `Dx12 / Cpu` ile açtı
+  ve çıkarılan paketi kaldırdı. Canlı Sysmon ve dışa aktarılmış EVTX birer
+  doğru sürece bağlanmış loopback olayı içerdi.
+- Adayın [Windows ve Linux CI kontrolü](https://github.com/dRafaleD/VespDex/actions/runs/45056201384)
+  geçti. Kilitli bağımlılıklarla biçim, Clippy ve regresyon testleri ile
+  Windows PowerShell 5.1 sözdizimi kontrolü çalıştı.
+- [Masaüstü kabulü için gerçek EVTX](https://github.com/dRafaleD/VespDex/actions/runs/45056667696)
+  (`7eb0636`) ayrı Windows çalıştırıcısında hazırlandı. Dosya yalnızca
+  doğrulanmış zararsız kök ve alt sürecin ilgili Sysmon olaylarını içerir.
 - Yerel [üç araç uyum kontrolü](BEHAVIOR_REPORT_V1.md#interoperability-check)
   geçti. AsphDex (`a940301`) aynı dosyanın hash'ini eşleştirdi ve farklı
   hash'i reddetti. Banshee (`e68d1b0`) iki ağ göstergesini doğru olay
