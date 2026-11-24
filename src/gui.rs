@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     path::PathBuf,
     sync::{
         Arc,
@@ -59,6 +59,7 @@ struct Workspace {
     candidate_path: Option<PathBuf>,
     candidates: Vec<sysmon::Candidate>,
     process_search: String,
+    process_tree_search: String,
     message: Option<(bool, String)>,
     view: View,
     timeline: Timeline,
@@ -324,6 +325,7 @@ impl Workspace {
         self.path = path;
         self.report = Some(report);
         self.timeline = Timeline::default();
+        self.process_tree_search.clear();
         self.view = View::Overview;
         self.message = None;
     }
@@ -565,7 +567,9 @@ impl eframe::App for Workspace {
                         View::Processes if self.report.is_some() => {
                             let report = self.report.as_ref().expect("view has a report");
                             panel_heading(ui, "Süreçler");
-                            if let Some(guid) = processes(ui, report, palette) {
+                            if let Some(guid) =
+                                processes(ui, report, &mut self.process_tree_search, palette)
+                            {
                                 self.timeline = Timeline {
                                     process: Some(guid),
                                     ..Timeline::default()
@@ -1095,68 +1099,146 @@ fn timeline_matches(
             || event.kind.key().contains(query))
 }
 
-fn processes(ui: &mut egui::Ui, report: &Report, palette: Palette) -> Option<String> {
+fn processes(
+    ui: &mut egui::Ui,
+    report: &Report,
+    search: &mut String,
+    palette: Palette,
+) -> Option<String> {
     let mut filter = None;
     if report.processes.is_empty() {
         ui.label("Bu kayıtta süreç kimliği bulunamadı.");
         return None;
     }
-    egui::ScrollArea::vertical()
-        .id_salt("process-list")
-        .show(ui, |ui| {
-            for (guid, depth) in process_tree(report) {
-                let process = &report.processes[guid];
-                palette.panel(palette.surface, 14, 10).show(ui, |ui| {
-                    ui.set_min_width(ui.available_width());
-                    ui.horizontal_top(|ui| {
-                        ui.add_space(12.0 * depth.min(6) as f32);
-                        ui.vertical(|ui| {
-                            ui.horizontal_wrapped(|ui| {
-                                if depth > 0 {
-                                    ui.colored_label(palette.accent, "└");
-                                }
-                                ui.strong(
-                                    process
-                                        .image
-                                        .as_deref()
-                                        .unwrap_or("Yürütülebilir dosya bilinmiyor"),
-                                );
-                                if ui.small_button("Olayları göster").clicked() {
-                                    filter = Some(guid.to_owned());
-                                }
-                            });
-                            ui.label(RichText::new(guid).monospace().color(palette.muted));
-                            if let Some(parent) = &process.parent_process_guid {
-                                let title = if report.processes.contains_key(parent) {
-                                    "Üst süreç"
-                                } else {
-                                    "Üst süreç kayıtta yok"
-                                };
+    let mut reset_scroll = false;
+    ui.horizontal_wrapped(|ui| {
+        reset_scroll = ui
+            .add(
+                egui::TextEdit::singleline(search)
+                    .hint_text("Dosya adı, yol veya süreç GUID ile ara")
+                    .char_limit(160)
+                    .desired_width(310.0),
+            )
+            .changed();
+        if !search.is_empty() && ui.small_button("Aramayı temizle").clicked() {
+            search.clear();
+            reset_scroll = true;
+        }
+    });
+    let query = search.trim().to_lowercase();
+    let tree = process_tree(report);
+    let matches = matching_processes(report, &query);
+    let visible = visible_processes(report, &matches);
+    ui.label(
+        RichText::new(format!("{} / {} süreç", matches.len(), tree.len()))
+            .small()
+            .monospace()
+            .color(palette.muted),
+    );
+    if matches.is_empty() {
+        ui.label("Bu aramayla eşleşen süreç yok.");
+        return None;
+    }
+    let mut scroll = egui::ScrollArea::vertical().id_salt("process-list");
+    if reset_scroll {
+        scroll = scroll.vertical_scroll_offset(0.0);
+    }
+    scroll.show(ui, |ui| {
+        for (guid, depth) in tree {
+            if !visible.contains(guid) {
+                continue;
+            }
+            let process = &report.processes[guid];
+            palette.panel(palette.surface, 14, 10).show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                ui.horizontal_top(|ui| {
+                    ui.add_space(12.0 * depth.min(6) as f32);
+                    ui.vertical(|ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            if depth > 0 {
+                                ui.colored_label(palette.accent, "└");
+                            }
+                            ui.strong(
+                                process
+                                    .image
+                                    .as_deref()
+                                    .unwrap_or("Yürütülebilir dosya bilinmiyor"),
+                            );
+                            if !matches.contains(guid) {
                                 ui.label(
-                                    RichText::new(format!("{title}  {parent}"))
-                                        .monospace()
+                                    RichText::new("Üst süreç bağlamı")
+                                        .small()
                                         .color(palette.muted),
                                 );
                             }
-                            ui.horizontal_wrapped(|ui| {
-                                for event in EventKind::ALL {
-                                    if let Some(count) = process.counts.get(event.key()) {
-                                        ui.label(format!("{} {count}", event_label(event)));
-                                    }
-                                }
-                            });
-                            if depth > 6 {
-                                ui.label(
-                                    RichText::new(format!("Ağaç derinliği {depth}"))
-                                        .color(palette.muted),
-                                );
+                            if ui.small_button("Olayları göster").clicked() {
+                                filter = Some(guid.to_owned());
                             }
                         });
+                        ui.label(RichText::new(guid).monospace().color(palette.muted));
+                        if let Some(parent) = &process.parent_process_guid {
+                            let title = if report.processes.contains_key(parent) {
+                                "Üst süreç"
+                            } else {
+                                "Üst süreç kayıtta yok"
+                            };
+                            ui.label(
+                                RichText::new(format!("{title}  {parent}"))
+                                    .monospace()
+                                    .color(palette.muted),
+                            );
+                        }
+                        ui.horizontal_wrapped(|ui| {
+                            for event in EventKind::ALL {
+                                if let Some(count) = process.counts.get(event.key()) {
+                                    ui.label(format!("{} {count}", event_label(event)));
+                                }
+                            }
+                        });
+                        if depth > 6 {
+                            ui.label(
+                                RichText::new(format!("Ağaç derinliği {depth}"))
+                                    .color(palette.muted),
+                            );
+                        }
                     });
                 });
-            }
-        });
+            });
+        }
+    });
     filter
+}
+
+fn matching_processes<'a>(report: &'a Report, query: &str) -> HashSet<&'a str> {
+    report
+        .processes
+        .iter()
+        .filter(|(guid, process)| {
+            guid.contains(query)
+                || process
+                    .image
+                    .as_ref()
+                    .is_some_and(|image| image.to_lowercase().contains(query))
+        })
+        .map(|(guid, _)| guid.as_str())
+        .collect()
+}
+
+fn visible_processes<'a>(report: &'a Report, matches: &HashSet<&'a str>) -> HashSet<&'a str> {
+    let mut visible = matches.clone();
+    for guid in matches {
+        let mut parent = report.processes[*guid].parent_process_guid.as_deref();
+        while let Some(guid) = parent {
+            let Some(process) = report.processes.get(guid) else {
+                break;
+            };
+            if !visible.insert(guid) {
+                break;
+            }
+            parent = process.parent_process_guid.as_deref();
+        }
+    }
+    visible
 }
 
 fn process_tree(report: &Report) -> Vec<(&str, usize)> {
@@ -1295,6 +1377,28 @@ mod tests {
 
         report.processes.remove(root);
         assert_eq!(process_tree(&report), [(child, 0)]);
+    }
+
+    #[test]
+    fn process_search_keeps_ancestors_and_excludes_unrelated_processes() {
+        let mut report = demo_report().unwrap();
+        let root = "11111111-1111-1111-1111-111111111111";
+        let child = "22222222-2222-2222-2222-222222222222";
+        let other = "33333333-3333-3333-3333-333333333333";
+        report.processes.insert(other.into(), Default::default());
+
+        let matches = matching_processes(&report, "demo-worker.exe");
+        assert_eq!(matches, HashSet::from([child]));
+        assert_eq!(
+            visible_processes(&report, &matches),
+            HashSet::from([root, child])
+        );
+        assert_eq!(matching_processes(&report, "3333"), HashSet::from([other]));
+
+        report.processes.remove(root);
+        let matches = matching_processes(&report, "demo-worker.exe");
+        assert_eq!(visible_processes(&report, &matches), HashSet::from([child]));
+        assert!(matching_processes(&report, "does-not-match").is_empty());
     }
 
     #[test]

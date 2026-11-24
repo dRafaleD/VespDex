@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Filter the desktop process tree by executable path or GUID with matching processes' recorded ancestors kept in view.
 - Search the desktop timeline by process image. Open the selected event's full process history from the detail panel.
 - Reopen saved v1 behavior reports in the Windows desktop, terminal, and CLI. Rebuild summaries from validated events.
 
