@@ -64,12 +64,22 @@ fn push_field(csv: &mut String, field: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::EventKind;
     use crate::demo_report;
+    use crate::gui::{ElapsedRange, Timeline, visible_timeline_events};
 
     #[test]
-    fn exports_only_supplied_events_with_process_context() {
+    fn exports_only_events_matching_the_timeline_filters() {
         let report = demo_report().unwrap();
-        let csv = encode(&report, report.events.iter().skip(2).take(1));
+        let timeline = Timeline {
+            kind: Some(EventKind::FileWrite),
+            process: Some("22222222-2222-2222-2222-222222222222".into()),
+            query: "demo-worker.exe".into(),
+            ..Timeline::default()
+        };
+        let range = ElapsedRange::parse("0,5", "1").unwrap();
+        let visible = visible_timeline_events(&report, &timeline, &range);
+        let csv = encode(&report, visible.into_iter().map(|(_, event)| event));
         assert_eq!(csv.lines().count(), 2);
         assert!(csv.contains(r#""file-write""#));
         assert!(csv.contains(r#""demo-worker.exe","demo-output.txt""#));

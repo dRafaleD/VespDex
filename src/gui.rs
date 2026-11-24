@@ -10,7 +10,7 @@ use std::{
 
 use anyhow::Result;
 use eframe::egui::{self, Color32, RichText, Stroke, Vec2};
-use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+use time::Duration;
 
 use crate::{EventKind, Report, analyze, demo_report, read_recording, save_report};
 
@@ -119,11 +119,16 @@ impl ElapsedRange {
     fn contains(&self, elapsed: f64) -> bool {
         self.from.is_none_or(|from| elapsed >= from) && self.to.is_none_or(|to| elapsed <= to)
     }
+}
 
-    fn includes_timestamp(&self, start: OffsetDateTime, timestamp: &str) -> bool {
-        OffsetDateTime::parse(timestamp, &Rfc3339)
-            .is_ok_and(|instant| self.contains((instant - start).as_seconds_f64()))
+fn elapsed_label(elapsed: Duration) -> String {
+    let seconds = elapsed.whole_seconds();
+    let nanoseconds = elapsed.subsec_nanoseconds();
+    if nanoseconds == 0 {
+        return format!("+{seconds} sn");
     }
+    let fraction = format!("{nanoseconds:09}");
+    format!("+{seconds},{} sn", fraction.trim_end_matches('0'))
 }
 
 enum Loaded {
@@ -1018,6 +1023,13 @@ fn timeline(
             timeline.to_seconds.clear();
             reset_scroll = true;
         }
+        if let Some(last) = report.events.last() {
+            ui.label(
+                RichText::new(format!("Son olay {}", elapsed_label(last.elapsed)))
+                    .small()
+                    .color(palette.muted),
+            );
+        }
     });
     if reset_scroll {
         timeline.selected = None;
@@ -1047,6 +1059,7 @@ fn timeline(
                 });
             });
             ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new(elapsed_label(event.elapsed)).monospace());
                 ui.label(
                     RichText::new(&event.timestamp)
                         .monospace()
@@ -1090,21 +1103,7 @@ fn timeline(
             return None;
         }
     };
-    let origin = report
-        .events
-        .first()
-        .and_then(|event| OffsetDateTime::parse(&event.timestamp, &Rfc3339).ok())
-        .filter(|_| range.from.is_some() || range.to.is_some());
-    let query = timeline.query.trim().to_lowercase();
-    let visible: Vec<_> = report
-        .events
-        .iter()
-        .enumerate()
-        .filter(|(_, event)| timeline_matches(event, report, timeline, &query))
-        .filter(|(_, event)| {
-            origin.is_none_or(|start| range.includes_timestamp(start, &event.timestamp))
-        })
-        .collect();
+    let visible = visible_timeline_events(report, timeline, &range);
     let mut export = false;
     ui.horizontal(|ui| {
         ui.label(
@@ -1146,8 +1145,17 @@ fn timeline(
         for (index, event) in &visible[rows] {
             let mut label = egui::text::LayoutJob::default();
             label.append(
-                &event.timestamp,
+                &elapsed_label(event.elapsed),
                 0.0,
+                egui::TextFormat {
+                    font_id: egui::FontId::monospace(11.0),
+                    color: palette.accent_soft,
+                    ..Default::default()
+                },
+            );
+            label.append(
+                &event.timestamp,
+                12.0,
                 egui::TextFormat {
                     font_id: egui::FontId::monospace(11.0),
                     color: palette.muted,
@@ -1183,6 +1191,23 @@ fn timeline(
         }
     });
     status
+}
+
+fn visible_timeline_events<'a>(
+    report: &'a Report,
+    timeline: &Timeline,
+    range: &ElapsedRange,
+) -> Vec<(usize, &'a crate::Event)> {
+    let query = timeline.query.trim().to_lowercase();
+    report
+        .events
+        .iter()
+        .enumerate()
+        .filter(|(_, event)| {
+            range.contains(event.elapsed.as_seconds_f64())
+                && timeline_matches(event, report, timeline, &query)
+        })
+        .collect()
 }
 
 fn process_image<'a>(report: &'a Report, guid: &str) -> Option<&'a str> {
@@ -1571,17 +1596,22 @@ mod tests {
 
     #[test]
     fn elapsed_range_accepts_inclusive_offsets_and_validates_input() {
-        let start = OffsetDateTime::parse("2026-11-21T10:00:00Z", &Rfc3339).unwrap();
+        let mut capture: serde_json::Value =
+            serde_json::from_str(include_str!("../examples/capture.json")).unwrap();
+        capture["events"][3]["timestamp"] = "2026-11-21T13:00:00.5+03:00".into();
+        let report = analyze(serde_json::from_value(capture).unwrap()).unwrap();
+        assert_eq!(report.events[1].elapsed, Duration::milliseconds(500));
+        assert_eq!(elapsed_label(report.events[1].elapsed), "+0,5 sn");
+        assert_eq!(elapsed_label(Duration::nanoseconds(1)), "+0,000000001 sn");
         let range = ElapsedRange::parse("0,5", "1.0").unwrap();
-        assert!(!range.includes_timestamp(start, "2026-11-21T10:00:00.499Z"));
-        assert!(range.includes_timestamp(start, "2026-11-21T13:00:00.5+03:00"));
-        assert!(range.includes_timestamp(start, "2026-11-21T10:00:01Z"));
-        assert!(!range.includes_timestamp(start, "2026-11-21T10:00:01.001Z"));
-        assert!(
-            ElapsedRange::parse("", "0")
-                .unwrap()
-                .includes_timestamp(start, "2026-11-21T10:00:00Z")
+        let visible = visible_timeline_events(&report, &Timeline::default(), &range);
+        assert_eq!(
+            visible.iter().map(|(index, _)| *index).collect::<Vec<_>>(),
+            [1, 2]
         );
+        assert!(!range.contains(0.499));
+        assert!(!range.contains(1.001));
+        assert!(ElapsedRange::parse("", "0").unwrap().contains(0.0));
         assert!(ElapsedRange::parse("2", "").unwrap().contains(3.0));
         for (from, to) in [
             ("2", "1"),

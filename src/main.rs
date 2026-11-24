@@ -79,6 +79,9 @@ impl CaptureWindow {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Event {
     timestamp: String,
+    #[cfg(windows)]
+    #[serde(skip)]
+    elapsed: time::Duration,
     kind: EventKind,
     detail: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -328,6 +331,13 @@ fn analyze(capture: Capture) -> Result<Report> {
     }
     validate_process_relationships(&processes)?;
     timeline.sort_by_key(|(timestamp, _)| *timestamp);
+    #[cfg(windows)]
+    if let Some((start, _)) = timeline.first() {
+        let start = *start;
+        for (timestamp, event) in &mut timeline {
+            event.elapsed = *timestamp - start;
+        }
+    }
     let coverage = Coverage {
         // The report knows which events it saw, but not what the collector missed.
         completeness: "unknown",
