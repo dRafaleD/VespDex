@@ -145,6 +145,7 @@ struct Comparison {
     path: PathBuf,
     report: Box<Report>,
     event_review: Option<compare::EventReview>,
+    changed_only: bool,
 }
 
 struct PendingLoad {
@@ -378,6 +379,7 @@ impl Workspace {
                     path,
                     report,
                     event_review: None,
+                    changed_only: false,
                 });
                 self.view = View::Compare;
             }

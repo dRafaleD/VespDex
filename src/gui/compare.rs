@@ -49,6 +49,37 @@ pub(super) fn show(
             RichText::new("Sayım farkları kaydedilen olayları gösterir. Gözlem aralığı ve Sysmon ayarları sonuçları etkileyebilir.")
                 .color(palette.muted),
         );
+        ui.checkbox(&mut comparison.changed_only, "Yalnızca sayısı değişen satırlar");
+        if comparison.changed_only
+            && comparison.event_review.as_ref().is_some_and(|review| {
+                let key = review.kind.key();
+                base.coverage.observed_kind_counts[key] == other.coverage.observed_kind_counts[key]
+            })
+        {
+            comparison.event_review = None;
+        }
+        let summaries = [
+            ("Süreç", base.processes.len(), other.processes.len()),
+            ("Süreci belirsiz olay", base.unattributed_event_count, other.unattributed_event_count),
+            ("Başlangıcı görünmeyen süreç", base.coverage.processes_without_start, other.coverage.processes_without_start),
+            ("Üst süreci kayıtta yok", base.coverage.processes_with_unseen_parent, other.coverage.processes_with_unseen_parent),
+        ];
+        let event_rows = EventKind::ALL
+            .into_iter()
+            .map(|kind| {
+                let key = kind.key();
+                (kind, base.coverage.observed_kind_counts[key], other.coverage.observed_kind_counts[key])
+            })
+            .filter(|(_, left, right)| !comparison.changed_only || left != right)
+            .collect::<Vec<_>>();
+        let summaries = summaries
+            .into_iter()
+            .filter(|(_, left, right)| !comparison.changed_only || left != right)
+            .collect::<Vec<_>>();
+        if comparison.changed_only && event_rows.is_empty() && summaries.is_empty() {
+            ui.label("Bu kayıtlardaki olay ve süreç sayıları aynı.");
+            return;
+        }
         egui::Grid::new("comparison-counts")
             .min_col_width(46.0)
             .spacing(Vec2::new(16.0, 6.0))
@@ -58,9 +89,10 @@ pub(super) fn show(
                     ui.strong(label);
                 }
                 ui.end_row();
-                count_row(ui, "Toplam olay", base.events.len(), other.events.len(), palette);
-                for kind in EventKind::ALL {
-                    let key = kind.key();
+                if !comparison.changed_only || base.events.len() != other.events.len() {
+                    count_row(ui, "Toplam olay", base.events.len(), other.events.len(), palette);
+                }
+                for (kind, left, right) in event_rows {
                     let active = comparison.event_review.as_ref().is_some_and(|review| review.kind == kind);
                     if ui
                         .selectable_label(active, event_label(kind))
@@ -75,33 +107,14 @@ pub(super) fn show(
                     }
                     count_values(
                         ui,
-                        base.coverage.observed_kind_counts[key],
-                        other.coverage.observed_kind_counts[key],
+                        left,
+                        right,
                         palette,
                     );
                 }
-                count_row(ui, "Süreç", base.processes.len(), other.processes.len(), palette);
-                count_row(
-                    ui,
-                    "Süreci belirsiz olay",
-                    base.unattributed_event_count,
-                    other.unattributed_event_count,
-                    palette,
-                );
-                count_row(
-                    ui,
-                    "Başlangıcı görünmeyen süreç",
-                    base.coverage.processes_without_start,
-                    other.coverage.processes_without_start,
-                    palette,
-                );
-                count_row(
-                    ui,
-                    "Üst süreci kayıtta yok",
-                    base.coverage.processes_with_unseen_parent,
-                    other.coverage.processes_with_unseen_parent,
-                    palette,
-                );
+                for (label, left, right) in summaries {
+                    count_row(ui, label, left, right, palette);
+                }
             });
     });
     if let Some(review) = &mut comparison.event_review {
@@ -279,6 +292,7 @@ mod tests {
             path: "second.json".into(),
             report: Box::new(crate::analyze(serde_json::from_value(capture).unwrap()).unwrap()),
             event_review: None,
+            changed_only: false,
         };
         let ctx = egui::Context::default();
         let draw = |comparison: &mut Comparison, events| {
@@ -353,5 +367,23 @@ mod tests {
         assert!(text.iter().any(|text| text.contains("example.org")));
         assert!(text.contains(&"Bu türde kayıtlı olay yok."));
         assert!(!text.iter().any(|text| text.contains("demo-output.txt")));
+
+        comparison.changed_only = true;
+        let frame = draw(&mut comparison, vec![]);
+        let includes = |caption| {
+            frame.shapes.iter().any(|shape|
+            matches!(&shape.shape, egui::epaint::Shape::Text(text) if text.galley.text() == caption)
+        )
+        };
+        assert!(includes("DNS sorgusu"));
+        assert!(!includes("Dosya yazma"));
+        assert!(!includes("Süreci belirsiz olay"));
+
+        comparison.report = Box::new(demo_report().unwrap());
+        let frame = draw(&mut comparison, vec![]);
+        assert!(frame.shapes.iter().any(|shape|
+            matches!(&shape.shape, egui::epaint::Shape::Text(text) if text.galley.text() == "Bu kayıtlardaki olay ve süreç sayıları aynı.")
+        ));
+        assert!(comparison.event_review.is_none());
     }
 }
