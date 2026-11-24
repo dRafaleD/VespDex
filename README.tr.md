@@ -63,6 +63,8 @@ Olay sayılarını, süreç kapsamını, gözlem aralıklarını ve dosya hash�
 Fark tablosundan bir olay türünü seçerek iki kayıttaki ilgili olayları inceleyebilirsin.
 Karşılaştırma özetini CLI’dan almak için `vespdex base.json --compare other.json --output comparison.json` kullan.
 
+Süreç ağacını ve beş olay türünü incelemek için [review-baseline.json](examples/review-baseline.json) dosyasını aç. İkinci kayıt olarak [review-followup.json](examples/review-followup.json) dosyasını seçtiğinde bir dosya yazma olayının arttığını, bir DNS sorgusunun ve bir ağ bağlantısının azaldığını görebilirsin. Her iki kayıt da sentetik veri içerir.
+
 ### Sysmon kayıtları
 
 Dışa aktarılmış EVTX dosyasını açmak için yerel Sysmon kurulumu gerekmez. Kayıt, seçilecek sürece ait Sysmon olay kimliği 1’i ve `Hashes` alanında SHA-256 değerini içermelidir. Desteklenen olaylar süreç başlangıcı (1), ağ bağlantısı (3), dosya oluşturma veya üzerine yazma (11), kayıt defteri değeri ayarlama (13) ve DNS sorgusudur (22).

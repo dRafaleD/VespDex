@@ -55,6 +55,35 @@ fn reports_the_sorted_timeline_and_process_relationships() {
 }
 
 #[test]
+fn compares_the_documented_review_examples() {
+    let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+    let output = Command::new(env!("CARGO_BIN_EXE_vespdex"))
+        .arg(examples.join("review-baseline.json"))
+        .arg("--compare")
+        .arg(examples.join("review-followup.json"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let comparison: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(comparison["sampleIdentity"], "same");
+    assert_eq!(
+        comparison["totalEvents"],
+        json!({"base": 7, "other": 6, "delta": -1})
+    );
+    assert_eq!(comparison["eventCounts"]["file-write"]["delta"], 1);
+    assert_eq!(comparison["eventCounts"]["dns-query"]["delta"], -1);
+    assert_eq!(comparison["eventCounts"]["network-connection"]["delta"], -1);
+    assert_eq!(
+        comparison["unattributedEvents"],
+        json!({"base": 1, "other": 1, "delta": 0})
+    );
+}
+
+#[test]
 fn builtin_demo_matches_the_documented_sample_without_opening_a_capture_file() {
     let workspace = tempfile::tempdir().unwrap();
     let result = Command::new(env!("CARGO_BIN_EXE_vespdex"))

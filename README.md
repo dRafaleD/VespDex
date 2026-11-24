@@ -63,6 +63,8 @@ Open **Karşılaştırma** and choose a second JSON capture or report to compare
 Select an event type in the comparison table to inspect matching events from both recordings.
 Compare the recorded counts from a script with `vespdex base.json --compare other.json --output comparison.json`.
 
+Open [review-baseline.json](examples/review-baseline.json) to explore a process tree and all five event types in the timeline. Use [review-followup.json](examples/review-followup.json) as the second recording to see one additional file write, one fewer DNS query, and one fewer network connection. Both recordings contain synthetic data.
+
 ### Sysmon recordings
 
 The desktop can open exported EVTX files on Windows without a local Sysmon installation. The recording needs Event ID 1 for the process you select, with a SHA-256 value in the `Hashes` field. Supported events are process creation (1), network connection (3), file creation or overwrite (11), registry value set (13), and DNS query (22).
