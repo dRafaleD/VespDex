@@ -24,6 +24,9 @@ cargo build --release --locked
 The desktop uses Direct3D 12. It prefers hardware rendering and can use
 the Windows software adapter when that adapter is available.
 
+Use **Tema** in the header to select Dark, Graphite, Midnight, or High Contrast.
+VespDex remembers the choice locally for your Windows account.
+
 Run `vespdex --gui` and choose **Dosya seç** to open telemetry JSON or an
 exported Windows Sysmon EVTX. For EVTX, choose a process with a recorded
 SHA-256 to analyze its process tree. The
