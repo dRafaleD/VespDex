@@ -45,6 +45,18 @@ ortamından toplar. Bir olaya ait eksik kayıtlar ekranda açıkça belirtilir.
 - [Masaüstü kabulü için gerçek EVTX](https://github.com/dRafaleD/VespDex/actions/runs/45056667696)
   (`7eb0636`) ayrı Windows çalıştırıcısında hazırlandı. Dosya yalnızca
   doğrulanmış zararsız kök ve alt sürecin ilgili Sysmon olaylarını içerir.
+- Bu EVTX, Sysmon kurulu olmayan Windows'ta yerel sağlayıcı arama hatasını
+  ortaya çıkardı. `ff139e4` ile dosya sorgusu düzeltildi. Windows PowerShell
+  5.1'de iki seçilebilir süreç, kök SHA-256, alt süreç ilişkisi ve alt sürecin
+  dosya ve loopback olayları doğrulandı. Bu düzeltme sürüm adayına dahildir.
+- Sysmon kurulu olmayan Windows 11 Pro x64'te `ff139e4` masaüstü derlemesiyle
+  aynı EVTX normal ve 762 piksel genişliğindeki pencerelerde açıldı. Kök
+  seçimi dört olay ve iki süreç gösterdi. Süreç ağacından alt sürece
+  geçildiğinde üç olay göründü. `Ctrl+F` arama odağını aldı ve
+  `127.0.0.1` filtresi tek ağ olayı bıraktı. `Ctrl+S` ile kaydedilen JSON
+  yeniden okunarak üst/alt süreç ve olay ilişkileri doğrulandı. Bozuk EVTX,
+  dosya seçicisinden vazgeçme ve çalışan analizi `Esc` ile iptal etme
+  senaryolarında önceki rapor ve filtreler korundu.
 - Yerel [üç araç uyum kontrolü](BEHAVIOR_REPORT_V1.md#interoperability-check)
   geçti. AsphDex (`a940301`) aynı dosyanın hash'ini eşleştirdi ve farklı
   hash'i reddetti. Banshee (`e68d1b0`) iki ağ göstergesini doğru olay
