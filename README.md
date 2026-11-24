@@ -24,7 +24,7 @@ cargo build --release --locked
 The desktop uses Direct3D 12. It prefers hardware rendering and can use
 the Windows software adapter when that adapter is available.
 
-Run `vespdex --gui` and choose **DOSYA SEÇ** to open telemetry JSON or an
+Run `vespdex --gui` and choose **Dosya seç** to open telemetry JSON or an
 exported Windows Sysmon EVTX. For EVTX, choose a process with a recorded
 SHA-256 to analyze its process tree. The
 timeline supports event-type, process and text filters. The process tree shows
@@ -36,7 +36,7 @@ JSON report used by the CLI. Open the example directly with:
 vespdex --gui --demo
 ```
 
-The **ÖRNEK KAYDI AÇ** button runs the same built-in synthetic capture.
+The **Örnek kaydı aç** button runs the same built-in synthetic capture.
 Use `vespdex --demo` for its CLI report.
 
 An invalid or cancelled import leaves the last successful report and its

@@ -22,6 +22,7 @@ const ACTIVE: Color32 = Color32::from_rgb(13, 22, 17);
 const LINE: Color32 = Color32::from_rgb(27, 51, 36);
 const LINE_HOT: Color32 = Color32::from_rgb(46, 107, 64);
 const ACCENT: Color32 = Color32::from_rgb(40, 255, 115);
+const ACCENT_SOFT: Color32 = Color32::from_rgb(158, 255, 187);
 const TEXT: Color32 = Color32::from_rgb(229, 244, 233);
 const MUTED: Color32 = Color32::from_rgb(130, 153, 138);
 
@@ -142,6 +143,8 @@ pub(crate) fn run(path: Option<PathBuf>, demo: bool) -> Result<()> {
             visuals.window_fill = SURFACE;
             visuals.window_stroke = Stroke::new(1.0_f32, LINE);
             visuals.override_text_color = Some(TEXT);
+            visuals.extreme_bg_color = BG;
+            visuals.faint_bg_color = SURFACE;
             visuals.selection.bg_fill = ACTIVE;
             visuals.selection.stroke = Stroke::new(1.0_f32, LINE_HOT);
             for widgets in [
@@ -158,6 +161,10 @@ pub(crate) fn run(path: Option<PathBuf>, demo: bool) -> Result<()> {
             visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, LINE_HOT);
             visuals.widgets.active.bg_stroke = Stroke::new(1.0_f32, ACCENT);
             cc.egui_ctx.set_visuals(visuals);
+            cc.egui_ctx.style_mut(|style| {
+                style.spacing.item_spacing = Vec2::new(8.0, 6.0);
+                style.spacing.button_padding = Vec2::new(11.0, 5.0);
+            });
             let texture = cc.egui_ctx.load_texture(
                 "vespdex-mask",
                 egui::ColorImage::from_rgba_unmultiplied(
@@ -358,13 +365,15 @@ impl eframe::App for Workspace {
         }
 
         egui::TopBottomPanel::top("header")
-            .frame(panel(BG, 22, 14))
+            .frame(panel(BG, 22, 10))
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    self.show_mask(ui, 30.0);
-                    ui.label(egui::RichText::new("Vesp").size(22.0).strong());
-                    ui.add_space(-8.0);
-                    ui.label(egui::RichText::new("Dex").size(22.0).strong().color(ACCENT));
+                    panel(Color32::BLACK, 2, 2).show(ui, |ui| self.show_mask(ui, 32.0));
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 0.0;
+                        ui.strong(RichText::new("Vesp").size(22.0));
+                        ui.label(RichText::new("Dex").size(22.0).color(ACCENT));
+                    });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(
                             RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
@@ -394,8 +403,9 @@ impl eframe::App for Workspace {
                     } else if let Some((error, message)) = &self.message {
                         ui.colored_label(if *error { Color32::LIGHT_RED } else { ACCENT }, message);
                     } else {
+                        ui.label(RichText::new("●").small().color(ACCENT));
                         ui.label(
-                            RichText::new("YEREL ANALİZ")
+                            RichText::new("Yerel analiz")
                                 .small()
                                 .monospace()
                                 .color(MUTED),
@@ -405,19 +415,17 @@ impl eframe::App for Workspace {
             });
         egui::SidePanel::left("navigation")
             .resizable(false)
-            .exact_width(198.0)
-            .frame(panel(BG, 14, 20))
+            .exact_width(174.0)
+            .frame(panel(SURFACE, 12, 20))
             .show(ctx, |ui| {
-                ui.strong("Analiz");
-                ui.add_space(8.0);
+                ui.label(RichText::new("ANALİZ").small().monospace().color(MUTED));
                 nav(ui, &mut self.view, View::Start, true);
                 if !self.candidates.is_empty() {
                     nav(ui, &mut self.view, View::ChooseProcess, true);
                 }
                 nav(ui, &mut self.view, View::Overview, self.report.is_some());
-                ui.add_space(23.0);
-                ui.strong("İnceleme");
-                ui.add_space(8.0);
+                ui.add_space(18.0);
+                ui.label(RichText::new("İNCELEME").small().monospace().color(MUTED));
                 nav(ui, &mut self.view, View::Timeline, self.report.is_some());
                 nav(ui, &mut self.view, View::Processes, self.report.is_some());
             });
@@ -456,7 +464,12 @@ impl eframe::App for Workspace {
                 egui::Frame::new()
                     .inner_margin(egui::Margin::symmetric(24, 22))
                     .show(ui, |ui| match self.view {
-                        View::Start => self.start(ui, ctx),
+                        View::Start => {
+                            egui::ScrollArea::vertical()
+                                .id_salt("start")
+                                .auto_shrink([false, false])
+                                .show(ui, |ui| self.start(ui, ctx));
+                        }
                         View::ChooseProcess => self.choose_process(ui, ctx),
                         View::Overview if self.report.is_some() => {
                             egui::ScrollArea::vertical()
@@ -569,29 +582,45 @@ impl Workspace {
 
     fn start(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.vertical_centered(|ui| {
-            ui.set_max_width(780.0);
-            ui.add_space(24.0);
-            panel_heading(ui, "Yeni inceleme");
-            panel(SURFACE, 22, 22).show(ui, |ui| {
-                ui.set_min_width(ui.available_width());
-                ui.vertical_centered(|ui| {
-                    self.show_mask(ui, 160.0);
-                    ui.add_space(18.0);
-                    ui.heading("Telemetri kaydı yükle");
-                    ui.label(
-                        RichText::new("Telemetri JSON veya Sysmon EVTX dosyasını buraya sürükle.")
-                            .color(MUTED),
-                    );
-                    ui.add_space(12.0);
-                    open_button(ui, self, ctx);
-                    ui.add_space(7.0);
-                    if ui
-                        .add_enabled(self.pending.is_none(), egui::Button::new("ÖRNEK KAYDI AÇ"))
-                        .clicked()
-                    {
-                        self.load_demo();
-                    }
-                });
+            ui.add_space(20.0);
+            ui.vertical(|ui| {
+                ui.set_width(ui.available_width().min(780.0));
+                ui.label(RichText::new("Yeni inceleme").size(32.0).strong());
+                ui.add_space(16.0);
+                let dragging = ctx.input(|input| !input.raw.hovered_files.is_empty());
+                panel(if dragging { ACTIVE } else { SURFACE }, 24, 24)
+                    .stroke(Stroke::new(1.0_f32, if dragging { ACCENT } else { LINE }))
+                    .show(ui, |ui| {
+                        ui.set_min_width(ui.available_width());
+                        ui.horizontal(|ui| {
+                            panel(Color32::BLACK, 6, 6).show(ui, |ui| self.show_mask(ui, 144.0));
+                            ui.add_space(14.0);
+                            ui.vertical(|ui| {
+                                ui.add_space(14.0);
+                                ui.label(
+                                    RichText::new("Telemetri kaydı yükle").size(21.0).strong(),
+                                );
+                                ui.label(
+                                    RichText::new(
+                                        "Telemetri JSON veya Sysmon EVTX dosyasını buraya sürükle.",
+                                    )
+                                    .color(MUTED),
+                                );
+                                ui.add_space(11.0);
+                                open_button(ui, self, ctx);
+                            });
+                        });
+                    });
+                ui.add_space(10.0);
+                if ui
+                    .add_enabled(
+                        self.pending.is_none(),
+                        egui::Button::new("Örnek kaydı aç").min_size(Vec2::new(0.0, 32.0)),
+                    )
+                    .clicked()
+                {
+                    self.load_demo();
+                }
             });
         });
     }
@@ -602,7 +631,7 @@ impl Workspace {
             ui.label(RichText::new("Davranış özeti").size(26.0).strong());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 export = ui
-                    .button(RichText::new("RAPORU KAYDET").color(ACCENT))
+                    .button(RichText::new("Raporu kaydet").color(ACCENT_SOFT))
                     .on_hover_text("Ctrl+S")
                     .clicked();
             });
@@ -610,16 +639,14 @@ impl Workspace {
         ui.separator();
         ui.add_space(12.0);
         if let Some(report) = &self.report {
-            panel(SURFACE, 16, 14).show(ui, |ui| {
-                ui.columns(3, |columns| {
-                    metric(&mut columns[0], "KAYITLI OLAY", report.events.len());
-                    metric(&mut columns[1], "SÜREÇ", report.processes.len());
-                    metric(
-                        &mut columns[2],
-                        "SÜRECİ BİLİNMEYEN OLAY",
-                        report.unattributed_event_count,
-                    );
-                });
+            ui.columns(3, |columns| {
+                metric(&mut columns[0], "Kayıtlı olay", report.events.len());
+                metric(&mut columns[1], "Süreç", report.processes.len());
+                metric(
+                    &mut columns[2],
+                    "Süreci belirsiz olay",
+                    report.unattributed_event_count,
+                );
             });
             ui.add_space(12.0);
             panel(SURFACE, 16, 14).show(ui, |ui| {
@@ -645,7 +672,7 @@ impl Workspace {
                 }
                 ui.add_space(10.0);
                 if ui
-                    .button(RichText::new("ZAMAN ÇİZELGESİNİ AÇ").color(ACCENT))
+                    .button(RichText::new("Zaman çizelgesini aç").color(ACCENT_SOFT))
                     .clicked()
                 {
                     self.view = View::Timeline;
@@ -691,9 +718,9 @@ fn panel_heading(ui: &mut egui::Ui, title: &str) {
 }
 
 fn open_button(ui: &mut egui::Ui, workspace: &mut Workspace, ctx: &egui::Context) {
-    let button = egui::Button::new(RichText::new("DOSYA SEÇ").color(BG).strong())
+    let button = egui::Button::new(RichText::new("Dosya seç").color(BG).strong())
         .fill(ACCENT)
-        .min_size(Vec2::new(110.0, 30.0));
+        .min_size(Vec2::new(116.0, 36.0));
     if ui
         .add_enabled(workspace.pending.is_none(), button)
         .on_hover_text("Ctrl+O")
@@ -706,20 +733,28 @@ fn open_button(ui: &mut egui::Ui, workspace: &mut Workspace, ctx: &egui::Context
 fn nav(ui: &mut egui::Ui, current: &mut View, destination: View, enabled: bool) {
     let selected = *current == destination;
     let button = egui::Button::new(RichText::new(destination.label()).color(if selected {
-        TEXT
+        ACCENT_SOFT
     } else {
         MUTED
     }))
     .selected(selected)
-    .fill(if selected { ACTIVE } else { BG })
-    .stroke(Stroke::NONE)
-    .min_size(Vec2::new(ui.available_width(), 30.0));
-    let response = ui.add_enabled(enabled, button);
+    .fill(if selected {
+        ACTIVE
+    } else {
+        Color32::TRANSPARENT
+    })
+    .min_size(Vec2::new(ui.available_width(), 34.0));
+    let response = ui
+        .scope(|ui| {
+            ui.visuals_mut().widgets.inactive.bg_stroke = Stroke::NONE;
+            ui.add_enabled(enabled, button)
+        })
+        .inner;
     if selected {
         let rect = response.rect;
         ui.painter().line_segment(
             [rect.left_top(), rect.left_bottom()],
-            Stroke::new(2.0_f32, TEXT),
+            Stroke::new(2.0_f32, ACCENT),
         );
     }
     if response.clicked() {
@@ -728,13 +763,16 @@ fn nav(ui: &mut egui::Ui, current: &mut View, destination: View, enabled: bool) 
 }
 
 fn metric(ui: &mut egui::Ui, label: &str, number: usize) {
-    ui.label(RichText::new(label).small().monospace().color(MUTED));
-    ui.label(
-        RichText::new(number.to_string())
-            .size(32.0)
-            .strong()
-            .color(ACCENT),
-    );
+    panel(SURFACE, 16, 13).show(ui, |ui| {
+        ui.set_min_width(ui.available_width());
+        ui.label(RichText::new(label).color(MUTED));
+        ui.label(
+            RichText::new(number.to_string())
+                .monospace()
+                .size(30.0)
+                .color(ACCENT),
+        );
+    });
 }
 
 fn event_label(kind: EventKind) -> &'static str {
@@ -794,12 +832,16 @@ fn timeline(ui: &mut egui::Ui, report: &Report, timeline: &mut Timeline) {
         .filter(|(_, event)| timeline_matches(event, timeline, &query))
         .collect();
     ui.label(
-        RichText::new(format!("{} / {} olay", visible.len(), report.events.len())).color(MUTED),
+        RichText::new(format!("{} / {} olay", visible.len(), report.events.len()))
+            .small()
+            .monospace()
+            .color(MUTED),
     );
     if let Some(index) = timeline.selected
         && let Some(event) = report.events.get(index)
     {
-        ui.group(|ui| {
+        panel(ACTIVE, 12, 8).show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
             ui.horizontal(|ui| {
                 ui.strong(event_label(event.kind));
                 if ui.small_button("Kapat").clicked() {
@@ -832,18 +874,40 @@ fn timeline(ui: &mut egui::Ui, report: &Report, timeline: &mut Timeline) {
     if reset_scroll {
         scroll = scroll.vertical_scroll_offset(0.0);
     }
-    scroll.show_rows(ui, 24.0, visible.len(), |ui, rows| {
+    scroll.show_rows(ui, 32.0, visible.len(), |ui, rows| {
         for (index, event) in &visible[rows] {
-            let label = format!(
-                "{}    {}    {}",
-                event.timestamp,
+            let mut label = egui::text::LayoutJob::default();
+            label.append(
+                &event.timestamp,
+                0.0,
+                egui::TextFormat {
+                    font_id: egui::FontId::monospace(11.0),
+                    color: MUTED,
+                    ..Default::default()
+                },
+            );
+            label.append(
                 event_label(event.kind),
-                event.detail
+                14.0,
+                egui::TextFormat {
+                    font_id: egui::FontId::proportional(13.0),
+                    color: ACCENT_SOFT,
+                    ..Default::default()
+                },
+            );
+            label.append(
+                &event.detail,
+                14.0,
+                egui::TextFormat {
+                    font_id: egui::FontId::proportional(13.0),
+                    color: TEXT,
+                    ..Default::default()
+                },
             );
             let button = egui::Button::new(label)
                 .selected(timeline.selected == Some(*index))
                 .truncate();
-            if ui.add_sized([ui.available_width(), 24.0], button).clicked() {
+            if ui.add_sized([ui.available_width(), 32.0], button).clicked() {
                 timeline.selected = Some(*index);
             }
         }

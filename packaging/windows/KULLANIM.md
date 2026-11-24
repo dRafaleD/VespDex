@@ -5,11 +5,11 @@ ZIP dosyasını yazma iznin olan bir klasöre çıkar. Masaüstü arayüzü içi
 `./vespdex.exe --gui` ile de açabilirsin. Rust kurulumu gerekmez.
 Masaüstü için Direct3D 12 destekli donanım veya Windows yazılım bağdaştırıcısı gerekir.
 
-**ÖRNEK KAYDI AÇ** düğmesiyle yerleşik sentetik örneği aç. Genel Bakış ekranında
+**Örnek kaydı aç** düğmesiyle yerleşik sentetik örneği aç. Genel Bakış ekranında
 4 olay ve 2 süreç görünür. Zaman çizelgesinde DNS sorgusunu seçebilir,
 Süreçler ekranında olayları süreç bazında açabilir ve Genel Bakış'tan raporu
 yeni bir JSON dosyasına kaydedebilirsin. Komut satırı için
-`./vespdex.exe --demo` kullan. Ayrıca **DOSYA SEÇ** ile
+`./vespdex.exe --demo` kullan. Ayrıca **Dosya seç** ile
 `examples/capture.json` dosyasını doğrudan açabilirsin.
 
 Klavye kısayolları: **Ctrl+O** kayıt açar, **Ctrl+F** olay aramasına odaklanır,
