@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/vespdex-mask.png" alt="VespDex mask" width="140">
+  <img src="assets/vespdex-readme-banner.png" alt="VespDex dynamic malware analysis banner with the green dot-matrix mask, event timeline, and process tree" width="100%">
 </p>
 
 # VespDex

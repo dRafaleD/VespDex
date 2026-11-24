@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/vespdex-mask.png" alt="VespDex maskesi" width="140">
+  <img src="assets/vespdex-readme-banner.png" alt="VespDex dinamik zararlı yazılım analizi banner’ı. Yeşil nokta matrisli maske, olay zaman çizelgesi ve süreç ağacı." width="100%">
 </p>
 
 # VespDex
