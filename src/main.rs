@@ -10,6 +10,7 @@ use clap::Parser;
 use serde::{Deserialize, Serialize};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
+mod comparison;
 #[cfg(windows)]
 mod gui;
 mod terminal;
@@ -28,6 +29,9 @@ struct Args {
     /// Open or analyze the built-in synthetic example
     #[arg(long)]
     demo: bool,
+    /// Compare the recording to a second JSON capture or report
+    #[arg(long, value_name = "OTHER", conflicts_with_all = ["gui", "demo"])]
+    compare: Option<PathBuf>,
     /// Save the JSON report to a new file instead of writing to stdout
     #[arg(short, long, conflicts_with = "gui")]
     output: Option<PathBuf>,
@@ -382,7 +386,7 @@ fn analyze(capture: Capture) -> Result<Report> {
     })
 }
 
-fn encoded_report(report: &Report) -> Result<Vec<u8>> {
+fn encoded_report(report: &impl Serialize) -> Result<Vec<u8>> {
     let mut bytes = serde_json::to_vec(report)?;
     ensure!((bytes.len() as u64) < MAX_BYTES, "report exceeds 4 MiB");
     bytes.push(b'\n');
@@ -444,7 +448,15 @@ fn main() -> Result<()> {
         let recording = args.capture.context("a telemetry recording is required")?;
         analyze(read_recording(&recording).context("unable to read recording")?)?
     };
-    if let Some(destination) = args.output {
+    if let Some(path) = args.compare {
+        let other = analyze(read_recording(&path).context("unable to read comparison recording")?)?;
+        let bytes = encoded_report(&comparison::Summary::new(&report, &other))?;
+        if let Some(destination) = args.output {
+            save_report_bytes(&bytes, &destination)?;
+        } else {
+            io::stdout().lock().write_all(&bytes)?;
+        }
+    } else if let Some(destination) = args.output {
         save_report(&report, &destination)?;
     } else {
         io::stdout().lock().write_all(&encoded_report(&report)?)?;

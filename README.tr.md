@@ -60,6 +60,7 @@ Güncel Windows kaynak derlemesinde **Görünen olayları CSV kaydet** düğmesi
 
 Olay sayılarını, süreç kapsamını, gözlem aralıklarını ve dosya hash’lerini karşılaştırmak için **Karşılaştırma** ekranında ikinci bir JSON kaydı veya raporu seç.
 Fark tablosundan bir olay türünü seçerek iki kayıttaki ilgili olayları inceleyebilirsin.
+Karşılaştırma özetini CLI’dan almak için `vespdex base.json --compare other.json --output comparison.json` kullan.
 
 ### Sysmon kayıtları
 

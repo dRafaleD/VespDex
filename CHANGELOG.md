@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Compare two local recordings from the CLI with `--compare` and export the resulting JSON summary.
 - Open an event-type row in the desktop comparison to inspect its recorded events and details side by side.
 - Compare two local JSON captures or reports in the Windows desktop, including file identity, event count deltas and observed coverage.
 - Step through matching events from the desktop event detail panel without changing the timeline filters.

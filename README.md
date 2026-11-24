@@ -60,6 +60,7 @@ In the current Windows source build, **Görünen olayları CSV kaydet** exports 
 
 Open **Karşılaştırma** and choose a second JSON capture or report to compare recorded event counts, process coverage, observation windows, and file hashes.
 Select an event type in the comparison table to inspect matching events from both recordings.
+Compare the recorded counts from a script with `vespdex base.json --compare other.json --output comparison.json`.
 
 ### Sysmon recordings
 

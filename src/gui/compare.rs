@@ -2,31 +2,16 @@ use std::path::Path;
 
 use eframe::egui::{self, RichText, Vec2};
 
-use crate::{EventKind, Report};
+use crate::{
+    EventKind, Report,
+    comparison::{Identity, identity},
+};
 
 use super::{Comparison, Palette, elapsed_label, event_label, process_image};
 
 pub(super) struct EventReview {
     kind: EventKind,
     selected: [Option<usize>; 2],
-}
-
-#[derive(PartialEq, Eq)]
-enum Identity {
-    Same,
-    Different,
-    Unknown,
-}
-
-fn identity(base: &Report, other: &Report) -> Identity {
-    let is_placeholder = |hash: &str| hash.bytes().all(|byte| byte == b'0');
-    if is_placeholder(&base.sample_sha256) || is_placeholder(&other.sample_sha256) {
-        Identity::Unknown
-    } else if base.sample_sha256 == other.sample_sha256 {
-        Identity::Same
-    } else {
-        Identity::Different
-    }
 }
 
 pub(super) fn show(

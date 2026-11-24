@@ -118,6 +118,53 @@ fn report_import_keeps_validation_and_capture_format_boundaries() {
 }
 
 #[test]
+fn compares_a_capture_to_a_saved_report_and_preserves_the_output_file() {
+    let folder = tempfile::tempdir().unwrap();
+    let base_path = folder.path().join("base.json");
+    let other_path = folder.path().join("other.json");
+    let destination = folder.path().join("comparison.json");
+    let mut base = capture();
+    base["sampleSha256"] = json!("1".repeat(64));
+    fs::write(&base_path, serde_json::to_vec(&base).unwrap()).unwrap();
+    base["caseId"] = json!("comparison-other");
+    base["events"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|event| event["kind"] != "dns-query");
+    let other = run(&serde_json::to_vec(&base).unwrap());
+    assert!(other.status.success());
+    fs::write(&other_path, other.stdout).unwrap();
+
+    let compare = || {
+        Command::new(env!("CARGO_BIN_EXE_vespdex"))
+            .arg(&base_path)
+            .arg("--compare")
+            .arg(&other_path)
+            .arg("--output")
+            .arg(&destination)
+            .output()
+            .unwrap()
+    };
+    let result = compare();
+    assert!(result.status.success(), "{:?}", result.stderr);
+    assert!(result.stdout.is_empty());
+    let bytes = fs::read(&destination).unwrap();
+    let summary: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(summary["kind"], "vespdex-behavior-comparison");
+    assert_eq!(summary["sampleIdentity"], "same");
+    assert_eq!(
+        summary["totalEvents"],
+        json!({"base":4,"other":3,"delta":-1})
+    );
+    assert_eq!(
+        summary["eventCounts"]["dns-query"],
+        json!({"base":1,"other":0,"delta":-1})
+    );
+    assert!(!compare().status.success());
+    assert_eq!(fs::read(destination).unwrap(), bytes);
+}
+
+#[test]
 fn uses_absolute_time_and_preserves_events_without_a_process() {
     let mut input = capture();
     input["events"] = json!([
