@@ -6,7 +6,7 @@
 
 **A local runtime telemetry analyzer written in Rust.** VespDex turns Windows Sysmon recordings and v1 JSON captures into searchable event timelines, process trees, and portable behavior reports.
 
-[Download for Windows x64](https://github.com/dRafaleD/VespDex/releases/tag/v0.3.0-rc.1) · [Türkçe](README.tr.md) · [Behavior report v1](docs/BEHAVIOR_REPORT_V1.md) · [Changelog](CHANGELOG.md)
+[Download for Windows x64](https://github.com/dRafaleD/VespDex/releases/tag/v0.3.0-rc.1) · [Türkçe](README.tr.md) · [Behavior report v1](docs/BEHAVIOR_REPORT_V1.md) · [Changelog](CHANGELOG.md) · [ISC License](LICENSE)
 
 ## What you can do
 
@@ -85,4 +85,4 @@ Reports can contain paths, domains, IP addresses, and other recorded text. Revie
 
 Run `cargo fmt --all -- --check`, `cargo clippy --all-targets --locked -- -D warnings`, and `cargo test --locked`. To build a portable ZIP on Windows, run `cargo build --release --locked` and then `./scripts/package-windows.ps1 -Binary ./target/release/vespdex.exe`. The ZIP and checksum are written under `target/dist`. See the [package guide](packaging/windows/USAGE.md) and the [release verification record](docs/RELEASE_PLAN.tr.md).
 
-The AsphDex startup animation attribution and ISC terms are in [NOTICE](NOTICE). The repository currently has no project-wide license file.
+VespDex is licensed under the [ISC License](LICENSE). The AsphDex startup animation attribution is in [NOTICE](NOTICE).

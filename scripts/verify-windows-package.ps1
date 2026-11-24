@@ -12,7 +12,7 @@ if ($zip.PSIsContainer -or $zip.Length -gt 40MB -or $zip.Name -cnotmatch '^VespD
 $version = $Matches[1]
 $expectedFiles = @(
     'vespdex.exe', 'Start-VespDex.cmd', 'examples/capture.json', 'scripts/convert-sysmon.ps1',
-    'KULLANIM.md', 'USAGE.md', 'NOTICE', 'CHANGELOG.md', 'PACKAGE-SHA256SUMS.txt'
+    'KULLANIM.md', 'USAGE.md', 'LICENSE', 'NOTICE', 'CHANGELOG.md', 'PACKAGE-SHA256SUMS.txt'
 )
 $summary = Get-Content -LiteralPath (Join-Path $zip.DirectoryName 'SHA256SUMS.txt')
 $archiveDigest = (Get-FileHash -LiteralPath $zip.FullName -Algorithm SHA256).Hash.ToLowerInvariant()

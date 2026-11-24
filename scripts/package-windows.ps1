@@ -50,6 +50,7 @@ try {
         'scripts/convert-sysmon.ps1' = Join-Path $root 'scripts/convert-sysmon.ps1'
         'KULLANIM.md' = Join-Path $root 'packaging/windows/KULLANIM.md'
         'USAGE.md' = Join-Path $root 'packaging/windows/USAGE.md'
+        'LICENSE' = Join-Path $root 'LICENSE'
         'NOTICE' = Join-Path $root 'NOTICE'
         'CHANGELOG.md' = Join-Path $root 'CHANGELOG.md'
     }

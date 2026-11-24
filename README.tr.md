@@ -6,7 +6,7 @@
 
 **Rust ile yazılmış, yerel çalışan bir çalışma zamanı telemetrisi analiz aracı.** VespDex, Windows Sysmon kayıtlarını ve v1 JSON telemetrisini aranabilir bir olay zaman çizelgesine, süreç ağacına ve taşınabilir davranış raporuna dönüştürür.
 
-[Windows x64 indir](https://github.com/dRafaleD/VespDex/releases/tag/v0.3.0-rc.1) · [English](README.md) · [Rapor biçimi v1](docs/BEHAVIOR_REPORT_V1.md) · [Değişiklikler](CHANGELOG.md)
+[Windows x64 indir](https://github.com/dRafaleD/VespDex/releases/tag/v0.3.0-rc.1) · [English](README.md) · [Rapor biçimi v1](docs/BEHAVIOR_REPORT_V1.md) · [Değişiklikler](CHANGELOG.md) · [ISC Lisansı](LICENSE)
 
 ## Neler yapabilirsin?
 
@@ -69,4 +69,4 @@ Raporlar dosya yolları, alan adları, IP adresleri ve başka kayıt metinleri i
 
 `cargo fmt --all -- --check`, `cargo clippy --all-targets --locked -- -D warnings` ve `cargo test --locked` komutlarıyla kaynak kodunu kontrol edebilirsin. [Paket kılavuzu](packaging/windows/KULLANIM.md) ve [yayın doğrulama kaydı](docs/RELEASE_PLAN.tr.md) ek ayrıntıları içerir.
 
-AsphDex açılış animasyonunun atfı ve ISC koşulları [NOTICE](NOTICE) dosyasında yer alır. Depo genelinde ayrı bir lisans dosyası bulunmuyor.
+VespDex [ISC Lisansı](LICENSE) ile yayımlanır. AsphDex açılış animasyonunun atfı [NOTICE](NOTICE) dosyasındadır.
