@@ -107,6 +107,11 @@ struct ElapsedRange {
 }
 
 impl ElapsedRange {
+    const ALL: Self = Self {
+        from: None,
+        to: None,
+    };
+
     fn parse(from: &str, to: &str, lang: Language) -> Result<Self, &'static str> {
         let seconds = |value: &str| match value.trim() {
             "" => Ok(None),
@@ -1130,15 +1135,23 @@ impl Workspace {
                     let is_demo = report.source == "synthetic-demo"
                         && report.sample_sha256.bytes().all(|byte| byte == b'0');
                     if !is_demo {
-                        ui.add(
-                            egui::Label::new(
-                                RichText::new(format!("SHA-256  {}", report.sample_sha256))
-                                    .monospace()
-                                    .color(palette.muted),
+                        ui.horizontal(|ui| {
+                            let copy = ui
+                                .small_button("SHA-256")
+                                .on_hover_text(lang.text("SHA-256 kopyala", "Copy SHA-256"));
+                            if copy.clicked() {
+                                ui.ctx().copy_text(report.sample_sha256.clone());
+                            }
+                            ui.add(
+                                egui::Label::new(
+                                    RichText::new(&report.sample_sha256)
+                                        .monospace()
+                                        .color(palette.muted),
+                                )
+                                .truncate(),
                             )
-                            .wrap()
-                            .selectable(true),
-                        );
+                            .on_hover_text(&report.sample_sha256);
+                        });
                     } else {
                         ui.label(
                             RichText::new(lang.text(
@@ -1530,75 +1543,191 @@ fn timeline(
     };
     let mut visible = visible_timeline_events(report, timeline, &range);
     let order_changed = initial_order != timeline.newest_first;
-    let mut scroll_to_row = if order_changed {
-        timeline
+    let side_by_side = ui.available_width() >= 800.0
+        && timeline
             .selected
-            .and_then(|index| timeline_row(&visible, index))
+            .is_some_and(|index| timeline_row(&visible, index).is_some());
+    let layout = if side_by_side {
+        egui::Layout::right_to_left(egui::Align::Min)
     } else {
-        None
+        egui::Layout::top_down(egui::Align::Min)
     };
-    let mut process_changed = false;
-    let mut visible_marks_changed = false;
-    if let Some(index) = timeline.selected
-        && let Some(row) = timeline_row(&visible, index)
-    {
-        palette.panel(palette.active, 12, 8).show(ui, |ui| {
-            ui.set_min_width(ui.available_width());
-            let row = ui
-                .horizontal_wrapped(|ui| {
-                    let previous = ui
-                        .add_enabled(row > 0, egui::Button::new(lang.text("Önceki", "Previous")))
-                        .clicked();
-                    let next = ui
-                        .add_enabled(row + 1 < visible.len(), egui::Button::new(lang.text("Sonraki", "Next")))
-                        .clicked();
-                    let selected = if previous {
-                        row - 1
-                    } else if next {
-                        row + 1
-                    } else {
-                        row
-                    };
+    ui.with_layout(layout, |ui| {
+        let update = event_inspector(ui, report, timeline, &visible, palette, lang, side_by_side);
+        if update.process_changed {
+            visible = visible_timeline_events(report, timeline, &ElapsedRange::ALL);
+        } else if update.marks_changed {
+            visible = visible_timeline_events(report, timeline, &range);
+        }
+        let scroll_to_row = if order_changed || update.process_changed {
+            timeline
+                .selected
+                .and_then(|index| timeline_row(&visible, index))
+        } else {
+            update.scroll_to_row
+        }
+        .or_else(|| (reset_scroll || order_changed || update.process_changed).then_some(0));
+        ui.allocate_ui_with_layout(
+            ui.available_size(),
+            egui::Layout::top_down(egui::Align::Min),
+            |ui| timeline_list(ui, report, timeline, &visible, palette, lang, scroll_to_row),
+        )
+        .inner
+    })
+    .inner
+}
+
+#[derive(Default)]
+struct InspectorUpdate {
+    scroll_to_row: Option<usize>,
+    process_changed: bool,
+    marks_changed: bool,
+}
+
+fn event_inspector(
+    ui: &mut egui::Ui,
+    report: &Report,
+    timeline: &mut Timeline,
+    visible: &[(usize, &crate::Event)],
+    palette: Palette,
+    lang: Language,
+    side_by_side: bool,
+) -> InspectorUpdate {
+    let mut update = InspectorUpdate::default();
+    let Some(row) = timeline
+        .selected
+        .and_then(|index| timeline_row(visible, index))
+    else {
+        return update;
+    };
+    let width = if side_by_side {
+        (ui.available_width() * 0.35).clamp(300.0, 390.0)
+    } else {
+        ui.available_width()
+    };
+    let detail_height = if side_by_side {
+        (ui.available_height() * 0.45).clamp(95.0, 280.0)
+    } else {
+        95.0
+    };
+    ui.allocate_ui_with_layout(
+        egui::vec2(width, 0.0),
+        egui::Layout::top_down(egui::Align::Min),
+        |ui| {
+            ui.set_width(width);
+            palette.panel(palette.active, 13, 10).show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    ui.strong(lang.text("Olay ayrıntısı", "Event details"));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.small_button(lang.text("Kapat", "Close")).clicked() {
+                            timeline.selected = None;
+                            timeline.detail_copied = false;
+                        }
+                    });
+                });
+                ui.separator();
+                let row = ui
+                    .horizontal_wrapped(|ui| {
+                        let previous = ui
+                            .add_enabled(
+                                row > 0,
+                                egui::Button::new(lang.text("Önceki", "Previous")),
+                            )
+                            .clicked();
+                        let next = ui
+                            .add_enabled(
+                                row + 1 < visible.len(),
+                                egui::Button::new(lang.text("Sonraki", "Next")),
+                            )
+                            .clicked();
+                        let selected = if previous {
+                            row - 1
+                        } else if next {
+                            row + 1
+                        } else {
+                            row
+                        };
+                        ui.label(
+                            RichText::new(format!("{} / {}", selected + 1, visible.len()))
+                                .monospace()
+                                .color(palette.muted),
+                        );
+                        if selected != row {
+                            timeline.selected = Some(visible[selected].0);
+                            timeline.detail_copied = false;
+                            update.scroll_to_row = Some(selected);
+                        }
+                        selected
+                    })
+                    .inner;
+                let (index, event) = visible[row];
+                ui.label(
+                    RichText::new(event_label(event.kind, lang))
+                        .size(18.0)
+                        .color(palette.accent_soft)
+                        .strong(),
+                );
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(RichText::new(elapsed_label(event.elapsed, lang)).monospace());
                     ui.label(
-                        RichText::new(format!("{} / {}", selected + 1, visible.len()))
+                        RichText::new(&event.timestamp)
                             .monospace()
                             .color(palette.muted),
                     );
-                    if selected != row {
-                        timeline.selected = Some(visible[selected].0);
-                        timeline.detail_copied = false;
-                        scroll_to_row = Some(selected);
+                    if let Some(guid) = &event.process_guid {
+                        if let Some(image) = process_image(report, guid) {
+                            let name = image.rsplit(['\\', '/']).next().unwrap_or(image);
+                            ui.label(RichText::new(name).strong()).on_hover_text(image);
+                        }
+                        ui.label(
+                            RichText::new(format!("{}  {guid}", lang.text("Süreç", "Process")))
+                                .monospace()
+                                .color(palette.muted),
+                        );
+                        if ui
+                            .small_button(
+                                lang.text("Bu sürecin olayları", "Show this process's events"),
+                            )
+                            .on_hover_text(lang.text(
+                                "Arama, tür, süre ve işaret filtrelerini temizler.",
+                                "Clears search, type, time, and marked-only filters.",
+                            ))
+                            .clicked()
+                        {
+                            timeline.focus_process(guid);
+                            update.process_changed = true;
+                        }
                     }
-                    selected
-                })
-                .inner;
-            let (index, event) = visible[row];
-            ui.horizontal(|ui| {
-                ui.strong(event_label(event.kind, lang));
-                let marked = timeline.marked.contains(&index);
-                if ui
-                    .small_button(if marked {
-                        lang.text("İşareti kaldır", "Unmark")
-                    } else {
-                        lang.text("İşaretle", "Mark for review")
-                    })
-                    .clicked()
-                {
-                    if marked {
-                        timeline.marked.remove(&index);
-                    } else {
-                        timeline.marked.insert(index);
-                    }
-                    if timeline.only_marked {
-                        timeline.selected = None;
-                        timeline.detail_copied = false;
-                        visible_marks_changed = true;
-                    }
-                }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.small_button(lang.text("Kapat", "Close")).clicked() {
-                        timeline.selected = None;
-                        timeline.detail_copied = false;
+                });
+                ui.separator();
+                egui::ScrollArea::vertical()
+                    .id_salt(("event-detail", index))
+                    .max_height(detail_height)
+                    .show(ui, |ui| {
+                        ui.add(egui::Label::new(&event.detail).wrap().selectable(true));
+                    });
+                ui.add_space(4.0);
+                ui.horizontal_wrapped(|ui| {
+                    let marked = timeline.marked.contains(&index);
+                    if ui
+                        .small_button(if marked {
+                            lang.text("İşareti kaldır", "Unmark")
+                        } else {
+                            lang.text("İşaretle", "Mark for review")
+                        })
+                        .clicked()
+                    {
+                        if marked {
+                            timeline.marked.remove(&index);
+                        } else {
+                            timeline.marked.insert(index);
+                        }
+                        if timeline.only_marked {
+                            timeline.selected = None;
+                            timeline.detail_copied = false;
+                            update.marks_changed = true;
+                        }
                     }
                     let copy_label = if timeline.detail_copied {
                         lang.text("Kopyalandı", "Copied")
@@ -1611,56 +1740,20 @@ fn timeline(
                     }
                 });
             });
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new(elapsed_label(event.elapsed, lang)).monospace());
-                ui.label(
-                    RichText::new(&event.timestamp)
-                        .monospace()
-                        .color(palette.muted),
-                );
-                if let Some(guid) = &event.process_guid {
-                    if let Some(image) = process_image(report, guid) {
-                        let name = image.rsplit(['\\', '/']).next().unwrap_or(image);
-                        ui.label(RichText::new(name).strong()).on_hover_text(image);
-                    }
-                    ui.label(
-                        RichText::new(format!("{}  {guid}", lang.text("Süreç", "Process")))
-                            .monospace()
-                            .color(palette.muted),
-                    );
-                    if ui
-                        .small_button(lang.text("Bu sürecin olayları", "Show this process's events"))
-                        .on_hover_text(
-                            lang.text("Arama, olay türü ve süre filtrelerini temizleyip bu süreci gösterir.", "Clears search, event type, time range, and marked-only filters to show this process."),
-                        )
-                        .clicked()
-                    {
-                        timeline.focus_process(guid);
-                        process_changed = true;
-                    }
-                }
-            });
-            ui.separator();
-            egui::ScrollArea::vertical()
-                .id_salt(("event-detail", index))
-                .max_height(95.0)
-                .show(ui, |ui| {
-                    ui.add(egui::Label::new(&event.detail).wrap().selectable(true));
-                });
-        });
-    }
-    if process_changed {
-        let all_time = ElapsedRange {
-            from: None,
-            to: None,
-        };
-        visible = visible_timeline_events(report, timeline, &all_time);
-        scroll_to_row = timeline
-            .selected
-            .and_then(|index| timeline_row(&visible, index));
-    } else if visible_marks_changed {
-        visible = visible_timeline_events(report, timeline, &range);
-    }
+        },
+    );
+    update
+}
+
+fn timeline_list(
+    ui: &mut egui::Ui,
+    report: &Report,
+    timeline: &mut Timeline,
+    visible: &[(usize, &crate::Event)],
+    palette: Palette,
+    lang: Language,
+    scroll_to_row: Option<usize>,
+) -> Option<(bool, String)> {
     ui.add_space(4.0);
     ui.separator();
     let mut export = false;
@@ -1725,17 +1818,11 @@ fn timeline(
     if let Some(row) = scroll_to_row {
         scroll =
             scroll.vertical_scroll_offset(row as f32 * (ROW_HEIGHT + ui.spacing().item_spacing.y));
-    } else if reset_scroll || process_changed || order_changed {
-        scroll = scroll.vertical_scroll_offset(0.0);
     }
     scroll.show_rows(ui, ROW_HEIGHT, visible.len(), |ui, rows| {
         let mono = egui::FontId::monospace(12.0);
         let body = egui::FontId::proportional(14.0);
-        let timestamp_column = if ui.available_width() < 620.0 {
-            172.0
-        } else {
-            218.0
-        };
+        let compact = ui.available_width() < 620.0;
         for (row, (index, event)) in visible[rows.clone()].iter().enumerate() {
             let mut label = egui::text::LayoutJob::default();
             let elapsed = elapsed_label(event.elapsed, lang);
@@ -1763,18 +1850,24 @@ fn timeline(
                     ..Default::default()
                 },
             );
-            label.append(
-                &event.timestamp,
-                column_gap(78.0, &prefix, &mono),
-                egui::TextFormat {
-                    font_id: mono.clone(),
-                    color: palette.muted,
-                    ..Default::default()
-                },
-            );
+            if !compact {
+                label.append(
+                    &event.timestamp,
+                    column_gap(78.0, &prefix, &mono),
+                    egui::TextFormat {
+                        font_id: mono.clone(),
+                        color: palette.muted,
+                        ..Default::default()
+                    },
+                );
+            }
             label.append(
                 kind,
-                column_gap(timestamp_column, &event.timestamp, &mono),
+                if compact {
+                    column_gap(78.0, &prefix, &mono)
+                } else {
+                    column_gap(218.0, &event.timestamp, &mono)
+                },
                 egui::TextFormat {
                     font_id: body.clone(),
                     color: palette.accent_soft,
@@ -2353,33 +2446,47 @@ mod tests {
             selected: Some(3),
             ..Timeline::default()
         };
-        let frame = ctx.run(egui::RawInput::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
-                timeline(
-                    ui,
-                    &report,
-                    &mut state,
-                    Theme::Dark.palette(),
-                    Language::English,
-                );
-            });
-        });
-        let text: Vec<_> = frame
+        let frame = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    Vec2::new(970.0, 620.0),
+                )),
+                ..egui::RawInput::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    timeline(
+                        ui,
+                        &report,
+                        &mut state,
+                        Theme::Dark.palette(),
+                        Language::English,
+                    );
+                });
+            },
+        );
+        let positions: Vec<_> = frame
             .shapes
             .iter()
             .filter_map(|shape| match &shape.shape {
-                egui::epaint::Shape::Text(label) => Some(label.galley.text()),
+                egui::epaint::Shape::Text(label) => Some((label.galley.text(), label.pos)),
                 _ => None,
             })
             .collect();
-        for label in [
-            "Mark for review",
-            "Save visible events as CSV",
-            "DNS query",
-            "+2 s",
-        ] {
-            assert!(text.contains(&label), "{label} is missing");
+        let position = |caption| {
+            positions
+                .iter()
+                .find(|(label, _)| *label == caption)
+                .unwrap_or_else(|| panic!("{caption} is missing"))
+                .1
+        };
+        for label in ["Mark for review", "DNS query", "+2 s"] {
+            position(label);
         }
+        let details = position("Event details");
+        let export = position("Save visible events as CSV");
+        assert!(details.x > export.x && (details.y - export.y).abs() < 30.0);
         assert_eq!(
             elapsed_label(Duration::milliseconds(500), Language::English),
             "+0.5 s"
@@ -2445,6 +2552,21 @@ mod tests {
                 );
             }
         };
+        let narrow = draw(&mut state, vec![]);
+        let caption_y = |caption| {
+            narrow
+                .shapes
+                .iter()
+                .find_map(|shape| match &shape.shape {
+                    egui::epaint::Shape::Text(text) if text.galley.text() == caption => {
+                        Some(text.pos.y)
+                    }
+                    _ => None,
+                })
+                .unwrap()
+        };
+        assert!(caption_y("Olay ayrıntısı") < caption_y("Görünen olayları CSV kaydet"));
+
         click(&mut state, "Önceki");
         assert_eq!(state.selected, Some(2));
         click(&mut state, "Sonraki");
