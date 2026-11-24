@@ -103,3 +103,9 @@ Her kabul sonucu için commit, ortam, komut ya da kullanıcı akışı, sonuç v
 sınırlar kaydedilir. Örnek telemetri uydurma veya açıkça zararsız kayıtlardan gelir.
 Kullanıcı kayıtları ve gerçek örnekler depoya eklenmez. Kapsam dışındaki olaylar
 ve doğrulanmamış platformlar yayın notlarına yazılır.
+
+## Masaüstünde kayıt karşılaştırma
+
+1. İkinci JSON kaydını mevcut rapordan ayrı yükle. Başarısız veya iptal edilen yüklemede açık raporu ve filtreleri koru.
+2. İki kaydın hash, gözlem aralığı ve olay sayısı farklarını göster. Yer tutucu hash için dosya kimliğini belirsiz olarak belirt.
+3. Sentetik kayıtlarda farklı olay sayılarını ve geçersiz dosya davranışını doğrula.

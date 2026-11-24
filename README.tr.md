@@ -58,6 +58,8 @@ Güncel kaynak derlemesi, kaydedilmiş v1 davranış raporlarını masaüstünde
 
 Güncel Windows kaynak derlemesinde **Görünen olayları CSV kaydet** düğmesi zaman çizelgesi filtrelerine uyan olayları kaydeder. JSON dışa aktarma raporun tamamını kaydeder.
 
+Olay sayılarını, süreç kapsamını, gözlem aralıklarını ve dosya hash’lerini karşılaştırmak için **Karşılaştırma** ekranında ikinci bir JSON kaydı veya raporu seç.
+
 ### Sysmon kayıtları
 
 Dışa aktarılmış EVTX dosyasını açmak için yerel Sysmon kurulumu gerekmez. Kayıt, seçilecek sürece ait Sysmon olay kimliği 1’i ve `Hashes` alanında SHA-256 değerini içermelidir. Desteklenen olaylar süreç başlangıcı (1), ağ bağlantısı (3), dosya oluşturma veya üzerine yazma (11), kayıt defteri değeri ayarlama (13) ve DNS sorgusudur (22).

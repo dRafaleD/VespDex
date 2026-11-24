@@ -58,6 +58,8 @@ The current source build opens saved v1 behavior reports in the desktop, termina
 
 In the current Windows source build, **Görünen olayları CSV kaydet** exports the events that match your timeline filters. The JSON report export saves the complete report.
 
+Open **Karşılaştırma** and choose a second JSON capture or report to compare recorded event counts, process coverage, observation windows, and file hashes.
+
 ### Sysmon recordings
 
 The desktop can open exported EVTX files on Windows without a local Sysmon installation. The recording needs Event ID 1 for the process you select, with a SHA-256 value in the `Hashes` field. Supported events are process creation (1), network connection (3), file creation or overwrite (11), registry value set (13), and DNS query (22).

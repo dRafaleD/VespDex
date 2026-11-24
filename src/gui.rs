@@ -14,6 +14,7 @@ use time::Duration;
 
 use crate::{EventKind, Report, analyze, demo_report, read_recording, save_report};
 
+mod compare;
 mod csv;
 mod sysmon;
 
@@ -29,6 +30,7 @@ enum View {
     Overview,
     Timeline,
     Processes,
+    Compare,
 }
 
 impl View {
@@ -39,13 +41,14 @@ impl View {
             Self::Overview => "Genel Bakış",
             Self::Timeline => "Zaman Çizelgesi",
             Self::Processes => "Süreçler",
+            Self::Compare => "Karşılaştırma",
         }
     }
 
     fn group(&self) -> &'static str {
         match self {
             Self::Start | Self::ChooseProcess | Self::Overview => "Analiz",
-            Self::Timeline | Self::Processes => "İnceleme",
+            Self::Timeline | Self::Processes | Self::Compare => "İnceleme",
         }
     }
 }
@@ -57,6 +60,7 @@ struct Workspace {
     header_mask: Option<egui::TextureHandle>,
     path: Option<PathBuf>,
     report: Option<Box<Report>>,
+    comparison: Option<Comparison>,
     pending: Option<PendingLoad>,
     candidate_path: Option<PathBuf>,
     candidates: Vec<sysmon::Candidate>,
@@ -134,6 +138,12 @@ fn elapsed_label(elapsed: Duration) -> String {
 enum Loaded {
     Report(Box<Report>),
     Processes(Vec<sysmon::Candidate>),
+    Comparison(Box<Report>),
+}
+
+struct Comparison {
+    path: PathBuf,
+    report: Box<Report>,
 }
 
 struct PendingLoad {
@@ -307,6 +317,20 @@ impl Workspace {
         });
     }
 
+    fn pick_comparison(&mut self, ctx: &egui::Context) {
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("Davranış raporu veya telemetri JSON", &["json"])
+            .pick_file()
+        {
+            self.start_job(ctx, path, |path, _| {
+                read_recording(path)
+                    .and_then(analyze)
+                    .map(Box::new)
+                    .map(Loaded::Comparison)
+            });
+        }
+    }
+
     fn start_job(
         &mut self,
         ctx: &egui::Context,
@@ -348,6 +372,10 @@ impl Workspace {
     fn finish_load(&mut self, path: PathBuf, result: Result<Loaded>) {
         match result {
             Ok(Loaded::Report(report)) => self.commit_report(Some(path), report),
+            Ok(Loaded::Comparison(report)) => {
+                self.comparison = Some(Comparison { path, report });
+                self.view = View::Compare;
+            }
             Ok(Loaded::Processes(candidates)) => {
                 self.candidate_path = Some(path);
                 self.candidates = candidates;
@@ -372,6 +400,7 @@ impl Workspace {
         }
         self.path = path;
         self.report = Some(report);
+        self.comparison = None;
         self.timeline = Timeline::default();
         self.process_tree_search.clear();
         self.view = View::Overview;
@@ -552,6 +581,13 @@ impl eframe::App for Workspace {
                     self.report.is_some(),
                     palette,
                 );
+                nav(
+                    ui,
+                    &mut self.view,
+                    View::Compare,
+                    self.report.is_some(),
+                    palette,
+                );
             });
 
         egui::CentralPanel::default()
@@ -629,6 +665,9 @@ impl eframe::App for Workspace {
                                 self.view = View::Timeline;
                             }
                         }
+                        View::Compare if self.report.is_some() => {
+                            self.compare_reports(ui, ctx, palette);
+                        }
                         _ => self.start(ui, ctx),
                     });
             });
@@ -644,6 +683,37 @@ impl eframe::App for Workspace {
 }
 
 impl Workspace {
+    fn compare_reports(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, palette: Palette) {
+        panel_heading(ui, "Davranış kayıtlarını karşılaştır");
+        let available = self.pending.is_none();
+        ui.horizontal_wrapped(|ui| {
+            if ui
+                .add_enabled(available, egui::Button::new("İkinci JSON kaydını aç"))
+                .clicked()
+            {
+                self.pick_comparison(ctx);
+            }
+            if self.comparison.is_some()
+                && ui
+                    .add_enabled(available, egui::Button::new("İkinci kaydı kaldır"))
+                    .clicked()
+            {
+                self.comparison = None;
+                self.message = None;
+            }
+        });
+        let Some(comparison) = &self.comparison else {
+            ui.label("Olay sayılarını ve kayıt kapsamını görmek için ikinci bir kayıt seç.");
+            return;
+        };
+        let base = self.report.as_ref().expect("comparison view has a report");
+        egui::ScrollArea::vertical()
+            .id_salt("comparison")
+            .show(ui, |ui| {
+                compare::show(ui, base, self.path.as_deref(), comparison, palette);
+            });
+    }
+
     fn choose_process(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let palette = self.theme.palette();
         panel_heading(ui, "Başlangıç sürecini seç");
@@ -1548,6 +1618,49 @@ mod tests {
             Some(std::path::Path::new("valid.json"))
         );
         assert!(workspace.report.is_some());
+    }
+
+    #[test]
+    fn comparison_loads_separately_and_failed_replacements_keep_the_pair() {
+        let mut workspace = Workspace::default();
+        workspace.load_demo();
+        workspace.timeline.query = "example.org".into();
+
+        let mut other = demo_report().unwrap();
+        other.case_id = "second-case".into();
+        workspace.finish_load(
+            "second.json".into(),
+            Ok(Loaded::Comparison(Box::new(other))),
+        );
+        let comparison = workspace.comparison.as_ref().unwrap();
+        assert_eq!(comparison.path, PathBuf::from("second.json"));
+        assert_eq!(comparison.report.case_id, "second-case");
+        assert_eq!(workspace.report.as_ref().unwrap().case_id, "demo-001");
+        assert_eq!(workspace.timeline.query, "example.org");
+        assert!(workspace.view == View::Compare);
+
+        workspace.finish_load("invalid.json".into(), Err(anyhow::anyhow!("invalid JSON")));
+        assert_eq!(
+            workspace.comparison.as_ref().unwrap().report.case_id,
+            "second-case"
+        );
+        let (sender, receiver) = mpsc::channel();
+        sender
+            .send(Ok(Loaded::Comparison(Box::new(demo_report().unwrap()))))
+            .unwrap();
+        workspace.pending = Some(PendingLoad {
+            path: "cancelled.json".into(),
+            result: receiver,
+            cancelled: Arc::new(AtomicBool::new(true)),
+        });
+        workspace.poll();
+        assert_eq!(
+            workspace.comparison.as_ref().unwrap().report.case_id,
+            "second-case"
+        );
+        workspace.load_demo();
+        assert!(workspace.comparison.is_none());
+        assert!(workspace.view == View::Overview);
     }
 
     #[test]

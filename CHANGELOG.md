@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Compare two local JSON captures or reports in the Windows desktop, including file identity, event count deltas and observed coverage.
 - Step through matching events from the desktop event detail panel without changing the timeline filters.
 - Show elapsed time alongside each absolute event timestamp so the timeline's time bounds can be read directly from the event list.
 - Export the desktop timeline's filtered events to CSV without replacing an existing file.
