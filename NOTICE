@@ -1,5 +1,4 @@
-The terminal portrait, opening animation and GUI mask originate in AsphDex
-(cli/avatar.js, cli/terminal-screen.js and assets/asphdex-icon.png).
+The terminal opening animation originates in AsphDex (cli/terminal-screen.js).
 
 ISC License
 

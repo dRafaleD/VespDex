@@ -89,7 +89,7 @@ struct PendingLoad {
 }
 
 pub(crate) fn run(path: Option<PathBuf>, demo: bool) -> Result<()> {
-    let mask = eframe::icon_data::from_png_bytes(include_bytes!("../assets/asphdex-mask.png"))?;
+    let mask = eframe::icon_data::from_png_bytes(include_bytes!("../assets/vespdex-mask.png"))?;
     let mut setup = eframe::egui_wgpu::WgpuSetupCreateNew::default();
     setup.instance_descriptor.backends = wgpu::Backends::DX12;
     setup
@@ -159,7 +159,7 @@ pub(crate) fn run(path: Option<PathBuf>, demo: bool) -> Result<()> {
             visuals.widgets.active.bg_stroke = Stroke::new(1.0_f32, ACCENT);
             cc.egui_ctx.set_visuals(visuals);
             let texture = cc.egui_ctx.load_texture(
-                "asphdex-mask",
+                "vespdex-mask",
                 egui::ColorImage::from_rgba_unmultiplied(
                     [mask.width as usize, mask.height as usize],
                     &mask.rgba,
@@ -561,7 +561,9 @@ impl Workspace {
 
     fn show_mask(&self, ui: &mut egui::Ui, size: f32) {
         if let Some(mask) = &self.mask {
-            ui.image((mask.id(), Vec2::splat(size)));
+            let dimensions = mask.size_vec2();
+            let scale = size / dimensions.x.max(dimensions.y);
+            ui.image((mask.id(), dimensions * scale));
         }
     }
 
