@@ -3,6 +3,8 @@
 ## 0.3.0-rc.1
 
 - Added the Windows desktop workspace for JSON telemetry and exported Sysmon EVTX.
+- Added offline EVTX import on Windows without a local Sysmon installation.
+- Updated the desktop and terminal with the new VespDex mask.
 - Added live Sysmon collection, process attribution, a process tree, event filters, keyboard shortcuts and capture coverage.
 - Added the built-in synthetic demo and safe report saving across desktop, terminal and CLI.
 - Moved Windows desktop rendering to Direct3D 12 with software-adapter support.
