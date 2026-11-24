@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Reverse the desktop timeline order while keeping its filters and selected event. CSV follows the visible order.
 - Show only changed counts in the desktop comparison, with a clear message when the recordings' counts match.
 - Compare two local recordings from the CLI with `--compare` and export the resulting JSON summary.
 - Open an event-type row in the desktop comparison to inspect its recorded events and details side by side.

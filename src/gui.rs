@@ -81,6 +81,7 @@ struct Timeline {
     selected: Option<usize>,
     detail_copied: bool,
     focus_search: bool,
+    newest_first: bool,
 }
 
 impl Timeline {
@@ -665,10 +666,9 @@ impl eframe::App for Workspace {
                             if let Some(guid) =
                                 processes(ui, report, &mut self.process_tree_search, palette)
                             {
-                                self.timeline = Timeline {
-                                    process: Some(guid),
-                                    ..Timeline::default()
-                                };
+                                self.timeline.focus_process(&guid);
+                                self.timeline.selected = None;
+                                self.timeline.detail_copied = false;
                                 self.view = View::Timeline;
                             }
                         }
@@ -1037,6 +1037,7 @@ fn timeline(
     palette: Palette,
 ) -> Option<(bool, String)> {
     let mut reset_scroll = false;
+    let initial_order = timeline.newest_first;
     ui.horizontal_wrapped(|ui| {
         let previous = timeline.kind;
         egui::ComboBox::from_id_salt("event-kind")
@@ -1074,6 +1075,17 @@ fn timeline(
                 reset_scroll = true;
             }
         }
+        egui::ComboBox::from_id_salt("event-order")
+            .width(120.0)
+            .selected_text(if timeline.newest_first {
+                "Yeniden eskiye"
+            } else {
+                "Eskiden yeniye"
+            })
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut timeline.newest_first, false, "Eskiden yeniye");
+                ui.selectable_value(&mut timeline.newest_first, true, "Yeniden eskiye");
+            });
     });
     ui.horizontal_wrapped(|ui| {
         ui.label("İlk olaydan itibaren (sn)");
@@ -1120,10 +1132,17 @@ fn timeline(
         }
     };
     let mut visible = visible_timeline_events(report, timeline, &range);
-    let mut scroll_to_row = None;
+    let order_changed = initial_order != timeline.newest_first;
+    let mut scroll_to_row = if order_changed {
+        timeline
+            .selected
+            .and_then(|index| timeline_row(&visible, index))
+    } else {
+        None
+    };
     let mut process_changed = false;
     if let Some(index) = timeline.selected
-        && let Ok(row) = visible.binary_search_by_key(&index, |(index, _)| *index)
+        && let Some(row) = timeline_row(&visible, index)
     {
         palette.panel(palette.active, 12, 8).show(ui, |ui| {
             ui.set_min_width(ui.available_width());
@@ -1218,11 +1237,9 @@ fn timeline(
             to: None,
         };
         visible = visible_timeline_events(report, timeline, &all_time);
-        scroll_to_row = timeline.selected.and_then(|index| {
-            visible
-                .binary_search_by_key(&index, |(index, _)| *index)
-                .ok()
-        });
+        scroll_to_row = timeline
+            .selected
+            .and_then(|index| timeline_row(&visible, index));
     }
     let mut export = false;
     ui.horizontal(|ui| {
@@ -1262,7 +1279,7 @@ fn timeline(
     if let Some(row) = scroll_to_row {
         scroll =
             scroll.vertical_scroll_offset(row as f32 * (ROW_HEIGHT + ui.spacing().item_spacing.y));
-    } else if reset_scroll || process_changed {
+    } else if reset_scroll || process_changed || order_changed {
         scroll = scroll.vertical_scroll_offset(0.0);
     }
     scroll.show_rows(ui, ROW_HEIGHT, visible.len(), |ui, rows| {
@@ -1323,7 +1340,7 @@ fn visible_timeline_events<'a>(
     range: &ElapsedRange,
 ) -> Vec<(usize, &'a crate::Event)> {
     let query = timeline.query.trim().to_lowercase();
-    report
+    let mut events = report
         .events
         .iter()
         .enumerate()
@@ -1331,7 +1348,15 @@ fn visible_timeline_events<'a>(
             range.contains(event.elapsed.as_seconds_f64())
                 && timeline_matches(event, report, timeline, &query)
         })
-        .collect()
+        .collect::<Vec<_>>();
+    if timeline.newest_first {
+        events.reverse();
+    }
+    events
+}
+
+fn timeline_row(events: &[(usize, &crate::Event)], index: usize) -> Option<usize> {
+    events.iter().position(|(candidate, _)| *candidate == index)
 }
 
 fn process_image<'a>(report: &'a Report, guid: &str) -> Option<&'a str> {
@@ -1857,5 +1882,11 @@ mod tests {
         assert_eq!(state.selected, Some(2));
         assert_eq!(state.query, "demo-worker.exe");
         assert_eq!(state.from_seconds, "1");
+
+        state.newest_first = true;
+        click(&mut state, "Sonraki");
+        assert_eq!(state.selected, Some(2));
+        click(&mut state, "Önceki");
+        assert_eq!(state.selected, Some(3));
     }
 }
