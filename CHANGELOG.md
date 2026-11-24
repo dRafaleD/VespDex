@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Export the desktop timeline's filtered events to CSV without replacing an existing file.
 - Filter the desktop timeline by a start or end offset in seconds from the first recorded event. Time bounds can be combined with text, event type and process filters.
 - Filter the desktop process tree by executable path or GUID with matching processes' recorded ancestors kept in view.
 - Search the desktop timeline by process image. Open the selected event's full process history from the detail panel.

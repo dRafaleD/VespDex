@@ -386,6 +386,10 @@ fn demo_report() -> Result<Report> {
 }
 
 fn save_report(report: &Report, destination: &Path) -> Result<()> {
+    save_report_bytes(&encoded_report(report)?, destination)
+}
+
+fn save_report_bytes(bytes: &[u8], destination: &Path) -> Result<()> {
     ensure!(
         destination.file_name().is_some(),
         "select a report filename"
@@ -394,14 +398,13 @@ fn save_report(report: &Report, destination: &Path) -> Result<()> {
         .parent()
         .filter(|path| !path.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
-    let bytes = encoded_report(report)?;
     let mut staged = tempfile::Builder::new()
         .prefix(".vespdex-report-")
         .suffix(".tmp")
         .tempfile_in(parent)
         .context("could not create a temporary report beside the destination")?;
     staged
-        .write_all(&bytes)
+        .write_all(bytes)
         .context("could not write the report")?;
     staged
         .as_file()

@@ -14,6 +14,7 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 use crate::{EventKind, Report, analyze, demo_report, read_recording, save_report};
 
+mod csv;
 mod sysmon;
 
 mod theme;
@@ -602,9 +603,13 @@ impl eframe::App for Workspace {
                         View::Timeline if self.report.is_some() => {
                             let report = self.report.as_ref().expect("view has a report");
                             panel_heading(ui, "Olay zaman çizelgesi");
-                            palette.panel(palette.surface, 14, 12).show(ui, |ui| {
-                                timeline(ui, report, &mut self.timeline, palette);
-                            });
+                            let export_status = palette
+                                .panel(palette.surface, 14, 12)
+                                .show(ui, |ui| timeline(ui, report, &mut self.timeline, palette))
+                                .inner;
+                            if let Some(status) = export_status {
+                                self.message = Some(status);
+                            }
                         }
                         View::Processes if self.report.is_some() => {
                             let report = self.report.as_ref().expect("view has a report");
@@ -943,7 +948,12 @@ fn event_label(kind: EventKind) -> &'static str {
     }
 }
 
-fn timeline(ui: &mut egui::Ui, report: &Report, timeline: &mut Timeline, palette: Palette) {
+fn timeline(
+    ui: &mut egui::Ui,
+    report: &Report,
+    timeline: &mut Timeline,
+    palette: Palette,
+) -> Option<(bool, String)> {
     let mut reset_scroll = false;
     ui.horizontal_wrapped(|ui| {
         let previous = timeline.kind;
@@ -1077,7 +1087,7 @@ fn timeline(ui: &mut egui::Ui, report: &Report, timeline: &mut Timeline, palette
         Ok(range) => range,
         Err(error) => {
             ui.colored_label(palette.error, error);
-            return;
+            return None;
         }
     };
     let origin = report
@@ -1095,16 +1105,33 @@ fn timeline(ui: &mut egui::Ui, report: &Report, timeline: &mut Timeline, palette
             origin.is_none_or(|start| range.includes_timestamp(start, &event.timestamp))
         })
         .collect();
-    ui.label(
-        RichText::new(format!("{} / {} olay", visible.len(), report.events.len()))
-            .small()
-            .monospace()
-            .color(palette.muted),
-    );
+    let mut export = false;
+    ui.horizontal(|ui| {
+        ui.label(
+            RichText::new(format!("{} / {} olay", visible.len(), report.events.len()))
+                .small()
+                .monospace()
+                .color(palette.muted),
+        );
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            export = ui
+                .add_enabled(
+                    !visible.is_empty(),
+                    egui::Button::new("Görünen olayları CSV kaydet"),
+                )
+                .on_hover_text("Etkin filtrelere uyan olayların tamamını kaydeder.")
+                .clicked();
+        });
+    });
     if visible.is_empty() {
         ui.label("Bu filtreyle eşleşen olay yok.");
-        return;
+        return None;
     }
+    let status = if export {
+        csv::export(report, visible.iter().map(|(_, event)| *event))
+    } else {
+        None
+    };
     let mut scroll = egui::ScrollArea::vertical()
         .id_salt((
             "timeline",
@@ -1155,6 +1182,7 @@ fn timeline(ui: &mut egui::Ui, report: &Report, timeline: &mut Timeline, palette
             }
         }
     });
+    status
 }
 
 fn process_image<'a>(report: &'a Report, guid: &str) -> Option<&'a str> {
